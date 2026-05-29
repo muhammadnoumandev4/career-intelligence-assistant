@@ -42,6 +42,7 @@ export function CareerAssistant() {
     },
   ]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState("");
 
   const activeDocument = documents.find((document) => document.id === activeDocumentId) ?? documents[0];
@@ -76,9 +77,33 @@ export function CareerAssistant() {
     );
   }
 
-  async function loadTextFile(file: File) {
-    const text = await file.text();
-    updateDocumentText(text);
+  async function loadFile(file: File) {
+    setError("");
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    const isPlainText = ["txt", "md", "csv"].includes(ext) || file.type.startsWith("text/");
+
+    // Plain text is read directly in the browser; PDF/DOCX go to the extract
+    // route, which parses them server-side (still keyless and offline).
+    if (isPlainText) {
+      updateDocumentText(await file.text());
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await fetch("/api/extract", { method: "POST", body: form });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Could not read that file.");
+      }
+      updateDocumentText(payload.text);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Could not read that file.");
+    } finally {
+      setIsUploading(false);
+    }
   }
 
   async function sendMessage(nextInput = input, jobId = activeJobId) {
@@ -175,16 +200,18 @@ export function CareerAssistant() {
                 <p className="text-xs uppercase tracking-[0.14em] text-[#697b73]">{activeDocument.kind}</p>
               </div>
               <label className="cursor-pointer border border-[#cbd5d1] px-3 py-2 text-xs font-semibold text-[#24342f] hover:bg-[#f2f5f4]">
-                TXT
+                {isUploading ? "Reading…" : "Upload (PDF / DOCX / TXT)"}
                 <input
                   className="sr-only"
                   type="file"
-                  accept=".txt,.md,.csv"
+                  accept=".txt,.md,.csv,.pdf,.docx"
+                  disabled={isUploading}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     if (file) {
-                      void loadTextFile(file);
+                      void loadFile(file);
                     }
+                    event.target.value = "";
                   }}
                 />
               </label>
@@ -238,7 +265,7 @@ export function CareerAssistant() {
                     {message.role === "user" ? "Question" : "Assistant"}
                   </p>
                   <p className="whitespace-pre-line text-sm leading-6 text-[#1d2b27]">{message.content}</p>
-                  {message.result && (
+                  {message.result?.trace && (
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#eef1f0] pt-2 text-[11px] text-[#697b73]">
                       <span className="border border-[#d8dedb] bg-[#f4f7f6] px-2 py-0.5 font-semibold uppercase tracking-[0.1em]">
                         {message.result.trace.mode}
