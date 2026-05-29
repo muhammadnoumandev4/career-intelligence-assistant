@@ -33,6 +33,9 @@ export type FitReport = {
   matched: FitSignal[];
   gaps: FitSignal[];
   cautions: string[];
+  /** The job this fit report was scored against, when a job document is present. */
+  jobId?: string;
+  jobTitle?: string;
 };
 
 /** Which retrieval/answer pipeline produced a result. */

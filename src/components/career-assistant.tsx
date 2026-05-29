@@ -18,6 +18,8 @@ const quickQuestions = [
   "Explain the RAG architecture and trade-offs.",
 ];
 
+const ALIGN_QUESTION = "How does my experience align with this role?";
+
 const documentLabels: Record<DocumentKind, string> = {
   resume: "Resume",
   job: "Job description",
@@ -25,9 +27,12 @@ const documentLabels: Record<DocumentKind, string> = {
   notes: "Notes",
 };
 
+const firstJobId = defaultDocuments.find((document) => document.kind === "job")?.id ?? "";
+
 export function CareerAssistant() {
   const [documents, setDocuments] = useState<DocumentInput[]>(defaultDocuments);
   const [activeDocumentId, setActiveDocumentId] = useState(defaultDocuments[0].id);
+  const [activeJobId, setActiveJobId] = useState(firstJobId);
   const [input, setInput] = useState(quickQuestions[0]);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -40,7 +45,15 @@ export function CareerAssistant() {
   const [error, setError] = useState("");
 
   const activeDocument = documents.find((document) => document.id === activeDocumentId) ?? documents[0];
+  const jobs = useMemo(() => documents.filter((document) => document.kind === "job"), [documents]);
   const latestResult = [...messages].reverse().find((message) => message.result)?.result;
+
+  function tabLabel(document: DocumentInput): string {
+    if (document.kind === "job" && jobs.length > 1) {
+      return `Job ${jobs.findIndex((job) => job.id === document.id) + 1}`;
+    }
+    return documentLabels[document.kind];
+  }
 
   const documentStats = useMemo(() => {
     const words = documents.reduce((total, document) => total + document.text.split(/\s+/).filter(Boolean).length, 0);
@@ -68,7 +81,7 @@ export function CareerAssistant() {
     updateDocumentText(text);
   }
 
-  async function sendMessage(nextInput = input) {
+  async function sendMessage(nextInput = input, jobId = activeJobId) {
     const message = nextInput.trim();
     if (!message || isLoading) {
       return;
@@ -85,7 +98,7 @@ export function CareerAssistant() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message, documents }),
+        body: JSON.stringify({ message, documents, activeJobId: jobId || undefined }),
       });
 
       const payload = await response.json();
@@ -138,19 +151,19 @@ export function CareerAssistant() {
         <section className="grid flex-1 gap-5 lg:grid-cols-[390px_minmax(0,1fr)_330px]">
           <aside className="flex min-h-[680px] flex-col border border-[#d8dedb] bg-white">
             <div className="border-b border-[#d8dedb] p-4">
-              <div className="grid grid-cols-3 gap-2">
+              <div className="flex flex-wrap gap-2">
                 {documents.map((document) => (
                   <button
                     key={document.id}
                     type="button"
                     onClick={() => setActiveDocumentId(document.id)}
-                    className={`min-h-12 border px-2 text-sm font-semibold transition ${
+                    className={`min-h-12 flex-1 border px-2 text-sm font-semibold transition ${
                       activeDocumentId === document.id
                         ? "border-[#0f4f3f] bg-[#0f4f3f] text-white"
                         : "border-[#d8dedb] bg-[#f8faf9] text-[#42524c] hover:border-[#88a096]"
                     }`}
                   >
-                    {documentLabels[document.kind]}
+                    {tabLabel(document)}
                   </button>
                 ))}
               </div>
@@ -286,6 +299,41 @@ export function CareerAssistant() {
                   {latestResult?.fit.score ?? 0}%
                 </span>
               </div>
+
+              {jobs.length > 1 && (
+                <div className="mt-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#697b73]">
+                    Score against
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {jobs.map((job, index) => (
+                      <button
+                        key={job.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveJobId(job.id);
+                          void sendMessage(ALIGN_QUESTION, job.id);
+                        }}
+                        title={job.title}
+                        className={`border px-3 py-1.5 text-xs font-semibold transition ${
+                          activeJobId === job.id
+                            ? "border-[#0f4f3f] bg-[#0f4f3f] text-white"
+                            : "border-[#d8dedb] bg-[#f8faf9] text-[#42524c] hover:border-[#88a096]"
+                        }`}
+                      >
+                        Job {index + 1}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {latestResult?.fit.jobTitle && (
+                <p className="mt-3 text-xs leading-5 text-[#697b73]">
+                  Scored against <span className="font-semibold text-[#42524c]">{latestResult.fit.jobTitle}</span>.
+                </p>
+              )}
+
               <div className="mt-4 space-y-2">
                 {(latestResult?.fit.matched ?? []).slice(0, 5).map((signal) => (
                   <div key={signal.label} className="border border-[#d8dedb] p-3">

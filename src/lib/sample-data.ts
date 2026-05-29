@@ -42,6 +42,18 @@ Required background includes 3+ years building production applications using AI 
 Bonus areas include public writing or talks about AI building, MLOps and model serving with BentoML, MLflow, Vertex AI, or SageMaker, streaming and batch ingestion with Spark, Airflow, Beam, or Glue, healthcare or life sciences domain exposure, and AWS Professional certification.`,
   },
   {
+    id: "jd-fintech-platform",
+    title: "Northbridge Fintech Senior Full-Stack JD",
+    kind: "job",
+    text: `Northbridge Financial is hiring a Senior Full-Stack Engineer for a remote role on its digital payments platform. The team ships customer-facing dashboards and internal tooling for card issuing, transaction processing, and merchant onboarding.
+
+You will build and own features end-to-end across a Next.js and React frontend in TypeScript and a Node.js backend organised as microservices. The API layer is REST and GraphQL, and services communicate over well-defined contracts. You will design relational data models in PostgreSQL, tune slow queries, add appropriate indexes, and use Redis for caching and rate limiting. Prisma is the ORM of record.
+
+The platform runs containerised on AWS with Docker, and deployments go through a CI/CD pipeline using GitHub Actions. We expect strong production ownership: structured logging, metrics, distributed tracing, and proactive monitoring of latency-critical payment flows so regressions are caught before customers feel them.
+
+Required background includes 5+ years building production web applications, deep TypeScript across frontend and backend, Node.js microservices, PostgreSQL performance tuning, REST and GraphQL API design, and cloud-native deployment with Docker and CI/CD. Experience in fintech, payments, or other regulated, high-reliability domains is strongly preferred.`,
+  },
+  {
     id: "assignment-v3",
     title: "Assignment v3",
     kind: "assignment",

@@ -16,6 +16,7 @@ const documentSchema = z.object({
 const requestSchema = z.object({
   message: z.string().trim().min(1).max(1200),
   documents: z.array(documentSchema).optional(),
+  activeJobId: z.string().trim().min(1).optional(),
 });
 
 export async function POST(request: Request) {
@@ -29,11 +30,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const { message, documents } = parsed.data;
+  const { message, documents, activeJobId } = parsed.data;
   const corpus = documents?.length ? documents : defaultDocuments;
 
   try {
-    const result = await answerQuestion(message, corpus);
+    const result = await answerQuestion(message, corpus, undefined, activeJobId);
     return NextResponse.json(result);
   } catch (error) {
     logger.error("chat request failed", {

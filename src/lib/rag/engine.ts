@@ -19,8 +19,9 @@ export async function answerQuestion(
   message: string,
   documents: DocumentInput[],
   config: AppConfig = getConfig(),
+  activeJobId?: string,
 ): Promise<ChatResult> {
-  const fit = analyzeFit(documents);
+  const fit = analyzeFit(documents, activeJobId);
 
   if (config.mode === "llm") {
     try {
@@ -78,15 +79,21 @@ function answerDeterministic(message: string, documents: DocumentInput[], fit: F
 function composeDeterministicAnswer(message: string, citations: RetrievedChunk[], fit: FitReport): string {
   const normalized = message.toLowerCase();
 
+  const role = fit.jobTitle ? `the ${fit.jobTitle} role` : "this role";
+
   if (normalized.includes("missing") || normalized.includes("gap")) {
+    const gapLabels = fit.gaps.length
+      ? fit.gaps.slice(0, 4).map((gap) => gap.label).join(", ")
+      : "none — the resume covers every skill this role asks for";
     return [
-      `Main gaps to address: ${fit.gaps.slice(0, 4).map((gap) => gap.label).join(", ")}.`,
-      "The strongest mitigation is to present this prototype as evidence of disciplined RAG delivery, then explicitly explain how you would add agent orchestration, MCP tool connectors, eval datasets, tracing, and healthcare-specific validation in production.",
+      `Against ${role}, the main gaps to address are: ${gapLabels}.`,
+      "The strongest mitigation is to present this prototype as evidence of disciplined RAG delivery, then explicitly explain how the gaps above would be closed in production — for example with agent orchestration, MCP tool connectors, eval datasets, tracing, and domain-specific validation.",
     ].join("\n\n");
   }
   if (normalized.includes("align") || normalized.includes("fit") || normalized.includes("match")) {
+    const strengths = fit.matched.slice(0, 5).map((signal) => signal.label).join(", ");
     return [
-      `Overall fit is ${fit.score}%. The strongest alignment is full-stack TypeScript/Next.js delivery, Node/NestJS APIs, RAG exposure, PostgreSQL performance work, and cloud deployment.`,
+      `Overall fit for ${role} is ${fit.score}%. The strongest alignment is: ${strengths || "limited overlap with the role's stated requirements"}.`,
       "Position the story around forward-deployed ownership: ambiguous requirement intake, fast prototype, measurable engineering decisions, and production-minded trade-offs.",
     ].join("\n\n");
   }
