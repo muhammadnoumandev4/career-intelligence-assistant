@@ -57,6 +57,20 @@ export const REQUIREMENTS: { label: string; terms: string[]; evidence: string }[
   },
 ];
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Whole-term match: the term must sit on a token boundary, not inside a longer
+ * word. Plain substring matching produced false positives — e.g. the term
+ * "eval" matched inside "retrieval" — which inflated the score. The lookarounds
+ * still allow the term's own punctuation/spaces (e.g. "next.js", "explain analyze").
+ */
+function mentions(text: string, term: string): boolean {
+  return new RegExp(`(?<![a-z0-9])${escapeRegExp(term)}(?![a-z0-9])`, "i").test(text);
+}
+
 export function analyzeFit(documents: DocumentInput[]): FitReport {
   const resumeText = documents
     .filter((document) => document.kind === "resume")
@@ -67,7 +81,7 @@ export function analyzeFit(documents: DocumentInput[]): FitReport {
   const gaps: FitSignal[] = [];
 
   for (const requirement of REQUIREMENTS) {
-    const present = requirement.terms.some((term) => resumeText.includes(term));
+    const present = requirement.terms.some((term) => mentions(resumeText, term));
     const signal: FitSignal = { label: requirement.label, present, evidence: requirement.evidence };
     (present ? matched : gaps).push(signal);
   }
