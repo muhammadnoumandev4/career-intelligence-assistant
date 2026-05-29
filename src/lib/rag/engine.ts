@@ -140,19 +140,26 @@ async function answerWithLlm(
   const startRetrieval = performance.now();
   const chunks = chunkDocuments(documents);
 
+  // Always compute the lexical ranking. It drives the relevance gate below —
+  // MIN_RELEVANCE_SCORE is tuned for the TF-IDF score scale — even when we fuse
+  // it with dense results to produce the final citation order.
+  const lexical = lexicalRetrieve(message, chunks, RETRIEVAL_LIMIT);
+
   let citations: RetrievedChunk[];
   if (hasEmbeddings(config)) {
     const [queryEmbedding] = await embedTexts([message], config);
     const chunkEmbeddings = await embedTexts(chunks.map((c) => c.text), config);
     const dense = vectorRetrieve(queryEmbedding, chunks, chunkEmbeddings, RETRIEVAL_LIMIT);
-    const lexical = lexicalRetrieve(message, chunks, RETRIEVAL_LIMIT);
     citations = reciprocalRankFusion([dense, lexical], RETRIEVAL_LIMIT);
   } else {
-    citations = lexicalRetrieve(message, chunks, RETRIEVAL_LIMIT);
+    citations = lexical;
   }
   const retrievalMs = performance.now() - startRetrieval;
 
-  if (!hasSufficientContext(citations)) {
+  // Gate on the lexical signal, not the fused score: RRF scores live on a
+  // rank-based scale (~1/k) unrelated to the TF-IDF relevance threshold, so
+  // checking the fused score here would refuse every answer in embeddings mode.
+  if (!hasSufficientContext(lexical)) {
     return {
       answer: REFUSAL_MESSAGE,
       citations,
