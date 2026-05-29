@@ -1,6 +1,6 @@
 # Career Intelligence Assistant
 
-A conversational RAG app that reads a resume, one or more job descriptions, and the assignment brief, then answers questions about role fit, skill gaps, interview prep, the RAG architecture itself, and how I'd ship it to production. Documents can be pasted/edited inline or uploaded as **PDF / DOCX / TXT** (parsed server-side, still keyless). Fit is scored per job — pick a posting and the same resume scores differently against each one.
+A conversational RAG app that reads a resume, one or more job descriptions, and the assignment brief, then answers questions about role fit, skill gaps, interview prep, the RAG architecture itself, and how I'd ship it to production. Documents can be pasted/edited inline or uploaded as **PDF / DOCX / TXT** (parsed server-side, still keyless). You can **add as many job postings as you want** (and remove them) right in the UI — fit is scored per job, so pick a posting and the same resume scores differently against each one.
 
 I picked **Option 4 (Career Intelligence Assistant)** because it lets me use the actual assignment inputs as the corpus — my CV, the Newpage AI-Native Builder JD, and the brief — so the demo is grounded in real data instead of a toy dataset.
 

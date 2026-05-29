@@ -64,17 +64,51 @@ export function CareerAssistant() {
     };
   }, [documents]);
 
-  function updateDocumentText(text: string) {
+  function patchActiveDocument(patch: Partial<DocumentInput>) {
     setDocuments((currentDocuments) =>
       currentDocuments.map((document) =>
-        document.id === activeDocument.id
-          ? {
-              ...document,
-              text,
-            }
-          : document,
+        document.id === activeDocument.id ? { ...document, ...patch } : document,
       ),
     );
+  }
+
+  function updateDocumentText(text: string) {
+    patchActiveDocument({ text });
+  }
+
+  // Add another job posting. The assignment is about a resume vs. *multiple*
+  // postings, so the corpus must be open-ended — the new job is inserted right
+  // after the last existing job and becomes active so it can be pasted/uploaded.
+  function addJob() {
+    const id = `job-${Date.now()}`;
+    const newJob: DocumentInput = { id, title: "New job description", kind: "job", text: "" };
+    setDocuments((current) => {
+      const lastJobIndex = current.map((document) => document.kind).lastIndexOf("job");
+      const insertAt = lastJobIndex === -1 ? current.length : lastJobIndex + 1;
+      const next = [...current];
+      next.splice(insertAt, 0, newJob);
+      return next;
+    });
+    setActiveDocumentId(id);
+  }
+
+  // Remove the active job posting (only jobs are removable — never the resume or
+  // assignment) and repoint the active document / scoring target.
+  function removeActiveJob() {
+    if (activeDocument.kind !== "job") {
+      return;
+    }
+    const removedId = activeDocument.id;
+    const remaining = documents.filter((document) => document.id !== removedId);
+    setDocuments(remaining);
+    setActiveDocumentId(remaining[0]?.id ?? "");
+    if (activeJobId === removedId) {
+      setActiveJobId(remaining.find((document) => document.kind === "job")?.id ?? "");
+    }
+  }
+
+  function stripExtension(name: string): string {
+    return name.replace(/\.[^.]+$/, "");
   }
 
   async function loadFile(file: File) {
@@ -85,7 +119,7 @@ export function CareerAssistant() {
     // Plain text is read directly in the browser; PDF/DOCX go to the extract
     // route, which parses them server-side (still keyless and offline).
     if (isPlainText) {
-      updateDocumentText(await file.text());
+      patchActiveDocument({ text: await file.text(), title: stripExtension(file.name) });
       return;
     }
 
@@ -98,7 +132,7 @@ export function CareerAssistant() {
       if (!response.ok) {
         throw new Error(payload.error ?? "Could not read that file.");
       }
-      updateDocumentText(payload.text);
+      patchActiveDocument({ text: payload.text, title: payload.title ?? stripExtension(file.name) });
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Could not read that file.");
     } finally {
@@ -191,6 +225,14 @@ export function CareerAssistant() {
                     {tabLabel(document)}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={addJob}
+                  title="Add another job posting"
+                  className="min-h-12 border border-dashed border-[#9fb3aa] bg-white px-3 text-sm font-semibold text-[#0f4f3f] transition hover:border-[#0f4f3f] hover:bg-[#f2f7f5]"
+                >
+                  + Job
+                </button>
               </div>
             </div>
 
@@ -199,22 +241,33 @@ export function CareerAssistant() {
                 <p className="text-sm font-semibold text-[#14201c]">{activeDocument.title}</p>
                 <p className="text-xs uppercase tracking-[0.14em] text-[#697b73]">{activeDocument.kind}</p>
               </div>
-              <label className="cursor-pointer border border-[#cbd5d1] px-3 py-2 text-xs font-semibold text-[#24342f] hover:bg-[#f2f5f4]">
-                {isUploading ? "Reading…" : "Upload (PDF / DOCX / TXT)"}
-                <input
-                  className="sr-only"
-                  type="file"
-                  accept=".txt,.md,.csv,.pdf,.docx"
-                  disabled={isUploading}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) {
-                      void loadFile(file);
-                    }
-                    event.target.value = "";
-                  }}
-                />
-              </label>
+              <div className="flex items-center gap-2">
+                {activeDocument.kind === "job" && jobs.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={removeActiveJob}
+                    className="border border-[#e3c4b6] px-3 py-2 text-xs font-semibold text-[#9a3412] hover:bg-[#fbf1ec]"
+                  >
+                    Remove
+                  </button>
+                )}
+                <label className="cursor-pointer border border-[#cbd5d1] px-3 py-2 text-xs font-semibold text-[#24342f] hover:bg-[#f2f5f4]">
+                  {isUploading ? "Reading…" : "Upload (PDF / DOCX / TXT)"}
+                  <input
+                    className="sr-only"
+                    type="file"
+                    accept=".txt,.md,.csv,.pdf,.docx"
+                    disabled={isUploading}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) {
+                        void loadFile(file);
+                      }
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
             </div>
 
             <textarea
