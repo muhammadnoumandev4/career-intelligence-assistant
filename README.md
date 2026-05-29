@@ -1,6 +1,6 @@
 # Career Intelligence Assistant
 
-A conversational RAG app that reads a resume, one or more job descriptions, and the assignment brief, then answers questions about role fit, skill gaps, interview prep, the RAG architecture itself, and how I'd ship it to production. Fit is scored per job — pick a posting and the same resume scores differently against each one.
+A conversational RAG app that reads a resume, one or more job descriptions, and the assignment brief, then answers questions about role fit, skill gaps, interview prep, the RAG architecture itself, and how I'd ship it to production. Documents can be pasted/edited inline or uploaded as **PDF / DOCX / TXT** (parsed server-side, still keyless). Fit is scored per job — pick a posting and the same resume scores differently against each one.
 
 I picked **Option 4 (Career Intelligence Assistant)** because it lets me use the actual assignment inputs as the corpus — my CV, the Newpage AI-Native Builder JD, and the brief — so the demo is grounded in real data instead of a toy dataset.
 
@@ -88,7 +88,7 @@ Everything retrieval-related lives in `src/lib/rag/`, deliberately split so each
 
 What I'd add, roughly in order of value:
 
-1. **Real ingestion** — PDF/DOCX parsing, upload to object storage, chunk + embed in a background job with retries. Right now documents are pasted/edited in the browser.
+1. **Robust ingestion** — PDF/DOCX upload + text extraction already works (`/api/extract`, via `unpdf` and `mammoth`, fully keyless). What's left for production is the durable side: upload to object storage, OCR for scanned/image-only PDFs, and chunk + embed in a background job with retries instead of synchronously.
 2. **Persistence** — Postgres for document/chunk metadata, pgvector (or a managed vector DB once scale justifies the ops cost) for embeddings. Per-user document collections.
 3. **Auth + tenancy** — ownership, row-level isolation, encrypted storage, deletion workflows, PII handling. I've built multi-tenant row isolation before; this is the same shape.
 4. **Streaming answers** — stream the LLM response from the route handler instead of awaiting the full completion.
@@ -108,7 +108,7 @@ The Dockerfile (multi-stage, non-root, Next.js standalone output) and the GitHub
 And what I deliberately skipped given the time box (called out so they're not mistaken for oversights):
 
 - **No persistence / auth** — documents live in component state for the demo; no DB, no users. Fine for a single-session prototype, not for production.
-- **No file parsing** — text is pasted/edited in the UI rather than parsed from PDF/DOCX uploads.
+- **No durable ingestion** — PDF/DOCX upload and text extraction work, but parsing is synchronous and in-memory; there's no object storage, no OCR for scanned PDFs, and no background embedding job yet.
 - **In-memory vectors, no real vector DB** — correct for a small handful of documents; would not scale.
 - **No streaming and no integration/e2e tests** — unit + eval coverage on the retrieval core was the higher-value use of the time; I'd add Playwright e2e for a real product.
 - **Edge cases acknowledged, not all handled** — e.g. very large pasted documents aren't paginated/streamed through retrieval.
@@ -129,7 +129,7 @@ My do's and don'ts with AI assistants:
 
 ## What I'd do differently / next
 
-- **Ingestion first** — PDF/DOCX parsing is the highest-leverage missing piece for real use.
+- **Durable ingestion first** — file extraction works, but a real product needs object storage, background parsing/embedding jobs, retries, OCR for scanned PDFs, and per-user document collections.
 - **Persistence + a real vector store** so collections survive a refresh.
 - **Streaming + reranking** for answer quality and perceived speed.
 - **Expand the eval set** — 8 cases proves the harness; a real product wants dozens, including more adversarial and edge cases.
