@@ -32,6 +32,16 @@ docker build -t career-assistant .
 docker run -p 3000:3000 career-assistant
 ```
 
+## Screenshots
+
+| Overview | Fit analysis |
+|---|---|
+| ![Overview](docs/screenshots/overview.jpg) | ![Fit analysis](docs/screenshots/fit-analysis.jpg) |
+
+| Refusal guardrail | Trace row |
+|---|---|
+| ![Refusal guardrail](docs/screenshots/refusal.jpg) | ![Trace row](docs/screenshots/trace.jpg) |
+
 ## How it works
 
 ```mermaid
@@ -115,7 +125,7 @@ And what I deliberately skipped given the time box (called out so they're not mi
 
 ## How I used AI tools
 
-I used Claude (via Claude Code) as a pair programmer: to read the assignment/JD/CV and pick the option, scaffold the Next.js app and the RAG module, draft tests, and catch wiring mistakes. The judgment calls stayed mine — the no-keys-by-default architecture, the deterministic/LLM split, the RRF choice, gating the LLM path, and treating evals as a CI gate were decisions I made and the tool implemented.
+I used Codex as a pair programmer: to read the assignment/JD/CV and pick the option, scaffold the Next.js app and the RAG module, draft tests, and catch wiring mistakes. The judgment calls stayed mine — the no-keys-by-default architecture, the deterministic/LLM split, the RRF choice, gating the LLM path, and treating evals as a CI gate were decisions I made and the tool implemented.
 
 **Keeping it to my standards.** I drive the assistant with explicit conventions — strict typing, a clear module boundary (`src/lib/rag/*` stays pure and UI-free), and a "no new runtime dependency unless it earns its place" rule. Generated code only lands after I read it; anything I wouldn't have written myself gets rewritten, not accepted.
 
