@@ -1,6 +1,6 @@
 # Career Intelligence Assistant
 
-A conversational RAG app that reads a resume, a job description, and the assignment brief, then answers questions about role fit, skill gaps, interview prep, the RAG architecture itself, and how I'd ship it to production.
+A conversational RAG app that reads a resume, one or more job descriptions, and the assignment brief, then answers questions about role fit, skill gaps, interview prep, the RAG architecture itself, and how I'd ship it to production. Fit is scored per job — pick a posting and the same resume scores differently against each one.
 
 I picked **Option 4 (Career Intelligence Assistant)** because it lets me use the actual assignment inputs as the corpus — my CV, the Newpage AI-Native Builder JD, and the brief — so the demo is grounded in real data instead of a toy dataset.
 
@@ -58,7 +58,7 @@ Everything retrieval-related lives in `src/lib/rag/`, deliberately split so each
 | `chunk.ts` | Paragraph-aware chunking (~850 char cap) + tokenizer with stop-word filtering |
 | `retrieval.ts` | TF-IDF lexical scoring, cosine similarity, Reciprocal Rank Fusion (k=60) |
 | `providers.ts` | LLM-mode adapters — OpenAI embeddings, Claude generation (only touched when keys exist) |
-| `fit.ts` | Transparent fit rubric: 9 role requirements scored by evidence presence |
+| `fit.ts` | JD-driven fit: a skill taxonomy where the *selected job* decides which skills count, then the resume is scored on coverage — so fit is relative to the role, not hard-coded |
 | `guardrails.ts` | Relevance threshold, grounding check, refusal message |
 | `engine.ts` | Orchestration — picks mode, runs retrieval, applies guardrails, composes the answer |
 
@@ -70,9 +70,11 @@ Everything retrieval-related lives in `src/lib/rag/`, deliberately split so each
 - *Deterministic (default):* TF-IDF lexical retrieval. Repeatable, explainable, and it makes the demo behave identically every time — which matters when I'm presenting live.
 - *LLM mode (keys present):* dense embeddings (`text-embedding-3-small`) combined with the lexical scores via **Reciprocal Rank Fusion**. Hybrid beats either signal alone — lexical nails exact terms like "NestJS", vectors catch paraphrase like "containerized deployments" ≈ "Docker".
 
-**Why these picks.** `text-embedding-3-small` is cheap and good enough for this corpus size; I'd only reach for a larger model if recall measurably suffered. Claude for synthesis because the JD names it and the answers here are reasoning-over-evidence, not raw generation. Vectors are held in memory because the corpus is three documents — standing up pgvector for that would be over-engineering. The interface is built so swapping in a real vector store is a `providers.ts` change, not a rewrite.
+**Why these picks.** `text-embedding-3-small` is cheap and good enough for this corpus size; I'd only reach for a larger model if recall measurably suffered. Claude for synthesis because the JD names it and the answers here are reasoning-over-evidence, not raw generation. Vectors are held in memory because the corpus is a handful of small documents — standing up pgvector for that would be over-engineering. The interface is built so swapping in a real vector store is a `providers.ts` change, not a rewrite.
 
 **Orchestration framework.** None on purpose. This is a single-step *retrieve → guard → answer* flow, so plain TypeScript in `engine.ts` is clearer and easier to debug than a graph framework. I considered LangGraph but it earns its keep only once you have multi-step agent state, branching, or tool loops — none of which this needs yet. The engine is structured as discrete stages, so dropping in LangGraph later is a refactor of one file, not the app.
+
+**Fit scoring (multi-JD).** Fit is a transparent skill taxonomy, not a black box. Each skill carries the terms that mean *a job requires it* and the terms that mean *the resume covers it*. When you pick a job, only the skills that job actually asks for count toward the denominator — so the same resume scores **67% against the Newpage AI-Native Builder JD** (gaps: agent frameworks/MCP, eval harnesses, healthcare domain) and **80% against a conventional fintech full-stack JD** (one gap: observability). That contrast is the point: the score is relative to the role, and I can explain every line of it. Earlier I had a bug where the term `eval` matched as a substring inside `retrieval`, inflating the score; I fixed it with whole-term boundary matching, which is why the honest number is 67% and not higher.
 
 **Prompt & context management.** The LLM prompt is a fixed system instruction that forbids outside knowledge and requires `[title]` citations; context is only the top retrieved chunks (capped so I stay well inside the model window), ordered by fused score. Temperature is low for repeatability. In deterministic mode the same retrieved context drives intent-keyed answer templates instead of a model.
 
@@ -107,7 +109,7 @@ And what I deliberately skipped given the time box (called out so they're not mi
 
 - **No persistence / auth** — documents live in component state for the demo; no DB, no users. Fine for a single-session prototype, not for production.
 - **No file parsing** — text is pasted/edited in the UI rather than parsed from PDF/DOCX uploads.
-- **In-memory vectors, no real vector DB** — correct for a 3-document corpus; would not scale.
+- **In-memory vectors, no real vector DB** — correct for a small handful of documents; would not scale.
 - **No streaming and no integration/e2e tests** — unit + eval coverage on the retrieval core was the higher-value use of the time; I'd add Playwright e2e for a real product.
 - **Edge cases acknowledged, not all handled** — e.g. very large pasted documents aren't paginated/streamed through retrieval.
 
@@ -133,4 +135,4 @@ My do's and don'ts with AI assistants:
 - **Expand the eval set** — 8 cases proves the harness; a real product wants dozens, including more adversarial and edge cases.
 - **A presentation mode** that walks the 10-minute demo automatically.
 
-See [`docs/approach.md`](docs/approach.md) for the demo script, the 10-minute presentation plan, and what I found in the data.
+See [`docs/approach.md`](docs/approach.md) for the demo script, the 10-minute presentation plan, and what I found in the data. See [`docs/project-details.md`](docs/project-details.md) for the assignment/JD/resume mapping and interview-ready project summary.
