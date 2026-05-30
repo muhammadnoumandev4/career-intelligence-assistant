@@ -103,6 +103,44 @@ function composeDeterministicAnswer(
       ].join("\n\n"),
     };
   }
+  // "What are my chances of getting shortlisted?" is a fit/likelihood question.
+  // It rarely shares vocabulary with the documents, so it is matched on its own
+  // hiring-intent terms and answered from the fit report (score + strengths +
+  // gaps) rather than refused. Placed before the generic fit branch so it gives
+  // the tailored shortlist framing.
+  if (
+    normalized.includes("shortlist") ||
+    normalized.includes("chance") ||
+    normalized.includes("odds") ||
+    normalized.includes("likelihood") ||
+    normalized.includes("likely") ||
+    normalized.includes("get the job") ||
+    normalized.includes("get hired") ||
+    normalized.includes("get selected") ||
+    normalized.includes("get an interview") ||
+    normalized.includes("get a callback") ||
+    normalized.includes("qualif") ||
+    normalized.includes("stand a chance") ||
+    normalized.includes("competitive") ||
+    normalized.includes("stack up")
+  ) {
+    const verdict = fit.score >= 75 ? "a strong" : fit.score >= 55 ? "a reasonable" : "a limited";
+    const strengths = fit.matched.slice(0, 4).map((signal) => signal.label).join(", ");
+    const gapLabels = fit.gaps.slice(0, 3).map((gap) => gap.label).join(", ");
+    return {
+      answersDirectly: true,
+      answer: [
+        `On the resume vs ${role}, the fit score is ${fit.score}%, which is ${verdict} signal for getting shortlisted.`,
+        strengths
+          ? `What works in your favour: ${strengths}.`
+          : "There is limited overlap with the role's stated requirements.",
+        gapLabels
+          ? `What could hold a shortlist back: ${gapLabels}. Addressing these directly in the application would improve the odds.`
+          : "No major gaps stand out against this role.",
+        "This is a transparent rubric heuristic, not a hiring decision — recruiters weigh signals this score does not capture.",
+      ].join("\n\n"),
+    };
+  }
   if (normalized.includes("align") || normalized.includes("fit") || normalized.includes("match")) {
     const strengths = fit.matched.slice(0, 5).map((signal) => signal.label).join(", ");
     return {
@@ -113,12 +151,19 @@ function composeDeterministicAnswer(
       ].join("\n\n"),
     };
   }
-  if (normalized.includes("interview") || normalized.includes("present")) {
+  if (normalized.includes("interview") || normalized.includes("present") || normalized.includes("prepare")) {
+    const strengths = fit.matched.slice(0, 4).map((signal) => signal.label).join(", ");
+    const gapLabels = fit.gaps.slice(0, 3).map((gap) => gap.label).join(", ");
     return {
       answersDirectly: true,
       answer: [
-        "Use the 10 minutes like this: 90 seconds for problem framing, 2 minutes for architecture and retrieval choices, 3 minutes for the live demo, 2 minutes for quality/guardrails/observability, and 90 seconds for productionization and what you would improve next.",
-        "Emphasize that the app runs deterministically without secrets for the assignment, while the LLM path adds embeddings plus grounded generation behind a single environment variable.",
+        `To prepare for the ${fit.jobTitle ? fit.jobTitle : "this role"} interview, lead with your strongest matches: ${
+          strengths || "the areas where your experience overlaps the role"
+        }. Have a concise STAR story (situation, task, action, measurable result) ready for each.`,
+        gapLabels
+          ? `Expect the panel to probe where you are lighter — ${gapLabels}. Prepare an honest "here is how I would close that" answer with a concrete plan rather than glossing over it.`
+          : "There are no major skill gaps for this role, so focus on depth: be ready to go one level deeper on any claim in your resume.",
+        "Also rehearse one project end-to-end: the problem, the decisions and trade-offs you made, and the impact you measured.",
       ].join("\n\n"),
     };
   }
@@ -137,6 +182,60 @@ function composeDeterministicAnswer(
       answer: [
         "The pipeline has clean seams: parser -> chunker -> retriever -> answer composer -> guardrails -> trace. The default mode uses paragraph-aware chunking, TF-IDF lexical retrieval, and grounded templated answers so the demo runs with zero secrets.",
         "With provider keys set, the same seams switch to OpenAI embeddings, hybrid vector + lexical retrieval fused with reciprocal rank fusion, and Claude for grounded generation — without changing the UI or API contract.",
+      ].join("\n\n"),
+    };
+  }
+
+  // Catch-all for candidate-focused questions a recruiter would actually type
+  // ("what are his strengths?", "does he have AWS experience?", "why should we
+  // hire him?", "summarize the candidate"). These rarely use the exact intent
+  // words above, so without this branch they fell through to the refusal. The
+  // answer is built from the fit report (always computable from resume + JD),
+  // so it works even when the phrasing shares no vocabulary with the documents.
+  // Keywords are deliberately candidate-specific (not bare words like "why") so
+  // genuinely off-topic questions still drop through to the fallback below.
+  if (
+    normalized.includes("strength") ||
+    normalized.includes("strong") ||
+    normalized.includes("skill") ||
+    normalized.includes("expert") ||
+    normalized.includes("proficien") ||
+    normalized.includes("experience") ||
+    normalized.includes("background") ||
+    normalized.includes("good at") ||
+    normalized.includes("good fit") ||
+    normalized.includes("best fit") ||
+    normalized.includes("right fit") ||
+    normalized.includes("suitable") ||
+    normalized.includes("suited") ||
+    normalized.includes("capable") ||
+    normalized.includes("capability") ||
+    normalized.includes("why should we hire") ||
+    normalized.includes("why hire") ||
+    normalized.includes("should we hire") ||
+    normalized.includes("hire him") ||
+    normalized.includes("hire her") ||
+    normalized.includes("candidate") ||
+    normalized.includes("his profile") ||
+    normalized.includes("summarize") ||
+    normalized.includes("summarise") ||
+    normalized.includes("summary of") ||
+    normalized.includes("overview of") ||
+    normalized.includes("what can he do") ||
+    normalized.includes("what does he bring")
+  ) {
+    const strengths = fit.matched.slice(0, 5).map((signal) => signal.label).join(", ");
+    const gapLabels = fit.gaps.slice(0, 3).map((gap) => gap.label).join(", ");
+    return {
+      answersDirectly: true,
+      answer: [
+        `For ${role}, the resume is a ${fit.score}% match. The strongest areas the candidate brings are: ${
+          strengths || "limited overlap with the role's stated requirements"
+        }.`,
+        gapLabels
+          ? `The role also asks for ${gapLabels}, which the resume does not clearly evidence — worth addressing directly.`
+          : "No major required skills are missing for this role.",
+        "Ask about overall fit, missing skills, experience alignment, shortlist chances, interview preparation, the RAG architecture, or productionization for a deeper view.",
       ].join("\n\n"),
     };
   }

@@ -6,7 +6,7 @@ import type { RetrievedChunk } from "./types";
 export const MIN_RELEVANCE_SCORE = 0.5;
 
 export const REFUSAL_MESSAGE =
-  "I could not find strong evidence for that in the current resume, job description, and assignment text. Try asking about fit, missing skills, productionization, RAG choices, or interview preparation — or add a document that covers it.";
+  "I could not find strong evidence for that in the current resume and job descriptions. Try asking about fit, missing skills, shortlist chances, experience alignment, interview preparation, the RAG architecture, or productionization — or add a document that covers it.";
 
 /**
  * Decide whether retrieved context is strong enough to answer. This is the
