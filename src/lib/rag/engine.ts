@@ -48,10 +48,14 @@ function answerDeterministic(message: string, documents: DocumentInput[], fit: F
   const retrievalMs = performance.now() - startRetrieval;
 
   const startAnswer = performance.now();
-  const answer = composeDeterministicAnswer(message, citations, fit);
+  const { answer, answersDirectly } = composeDeterministicAnswer(message, citations, fit);
   const answerMs = performance.now() - startAnswer;
 
-  const grounded = answer !== REFUSAL_MESSAGE && citations.length > 0;
+  // Grounded only when we gave a direct, intent-matched answer that is backed by
+  // retrieved evidence. The transparent "closest evidence" fallback and refusals
+  // are never grounded — so an off-topic question that only incidentally matched
+  // a term is never presented as a confident answer.
+  const grounded = answersDirectly && citations.length > 0;
   logger.info("answer", {
     mode: "deterministic",
     question: message.slice(0, 120),
@@ -76,7 +80,13 @@ function answerDeterministic(message: string, documents: DocumentInput[], fit: F
   };
 }
 
-function composeDeterministicAnswer(message: string, citations: RetrievedChunk[], fit: FitReport): string {
+type DeterministicAnswer = { answer: string; answersDirectly: boolean };
+
+function composeDeterministicAnswer(
+  message: string,
+  citations: RetrievedChunk[],
+  fit: FitReport,
+): DeterministicAnswer {
   const normalized = message.toLowerCase();
 
   const role = fit.jobTitle ? `the ${fit.jobTitle} role` : "this role";
@@ -85,46 +95,75 @@ function composeDeterministicAnswer(message: string, citations: RetrievedChunk[]
     const gapLabels = fit.gaps.length
       ? fit.gaps.slice(0, 4).map((gap) => gap.label).join(", ")
       : "none — the resume covers every skill this role asks for";
-    return [
-      `Against ${role}, the main gaps to address are: ${gapLabels}.`,
-      "The strongest mitigation is to present this prototype as evidence of disciplined RAG delivery, then explicitly explain how the gaps above would be closed in production — for example with agent orchestration, MCP tool connectors, eval datasets, tracing, and domain-specific validation.",
-    ].join("\n\n");
+    return {
+      answersDirectly: true,
+      answer: [
+        `Against ${role}, the main gaps to address are: ${gapLabels}.`,
+        "The strongest mitigation is to present this prototype as evidence of disciplined RAG delivery, then explicitly explain how the gaps above would be closed in production — for example with agent orchestration, MCP tool connectors, eval datasets, tracing, and domain-specific validation.",
+      ].join("\n\n"),
+    };
   }
   if (normalized.includes("align") || normalized.includes("fit") || normalized.includes("match")) {
     const strengths = fit.matched.slice(0, 5).map((signal) => signal.label).join(", ");
-    return [
-      `Overall fit for ${role} is ${fit.score}%. The strongest alignment is: ${strengths || "limited overlap with the role's stated requirements"}.`,
-      "Position the story around forward-deployed ownership: ambiguous requirement intake, fast prototype, measurable engineering decisions, and production-minded trade-offs.",
-    ].join("\n\n");
+    return {
+      answersDirectly: true,
+      answer: [
+        `Overall fit for ${role} is ${fit.score}%. The strongest alignment is: ${strengths || "limited overlap with the role's stated requirements"}.`,
+        "Position the story around forward-deployed ownership: ambiguous requirement intake, fast prototype, measurable engineering decisions, and production-minded trade-offs.",
+      ].join("\n\n"),
+    };
   }
   if (normalized.includes("interview") || normalized.includes("present")) {
-    return [
-      "Use the 10 minutes like this: 90 seconds for problem framing, 2 minutes for architecture and retrieval choices, 3 minutes for the live demo, 2 minutes for quality/guardrails/observability, and 90 seconds for productionization and what you would improve next.",
-      "Emphasize that the app runs deterministically without secrets for the assignment, while the LLM path adds embeddings plus grounded generation behind a single environment variable.",
-    ].join("\n\n");
+    return {
+      answersDirectly: true,
+      answer: [
+        "Use the 10 minutes like this: 90 seconds for problem framing, 2 minutes for architecture and retrieval choices, 3 minutes for the live demo, 2 minutes for quality/guardrails/observability, and 90 seconds for productionization and what you would improve next.",
+        "Emphasize that the app runs deterministically without secrets for the assignment, while the LLM path adds embeddings plus grounded generation behind a single environment variable.",
+      ].join("\n\n"),
+    };
   }
   if (normalized.includes("production") || normalized.includes("scale") || normalized.includes("deploy")) {
-    return [
-      "Production path: move ingestion to background jobs, store parsed documents in object storage, persist chunks and metadata in Postgres with pgvector, add hybrid BM25/vector retrieval, stream LLM responses, and deploy with Docker on AWS ECS/Fargate, Cloud Run, Azure Container Apps, or Vercel plus managed Postgres.",
-      "Operational controls should include secrets management, auth, tenant isolation, request tracing, structured logs, retrieval quality evals, prompt/version tracking, rate limits, and human-readable citations.",
-    ].join("\n\n");
+    return {
+      answersDirectly: true,
+      answer: [
+        "Production path: move ingestion to background jobs, store parsed documents in object storage, persist chunks and metadata in Postgres with pgvector, add hybrid BM25/vector retrieval, stream LLM responses, and deploy with Docker on AWS ECS/Fargate, Cloud Run, Azure Container Apps, or Vercel plus managed Postgres.",
+        "Operational controls should include secrets management, auth, tenant isolation, request tracing, structured logs, retrieval quality evals, prompt/version tracking, rate limits, and human-readable citations.",
+      ].join("\n\n"),
+    };
   }
   if (normalized.includes("architecture") || normalized.includes("rag") || normalized.includes("retrieval")) {
-    return [
-      "The pipeline has clean seams: parser -> chunker -> retriever -> answer composer -> guardrails -> trace. The default mode uses paragraph-aware chunking, TF-IDF lexical retrieval, and grounded templated answers so the demo runs with zero secrets.",
-      "With provider keys set, the same seams switch to OpenAI embeddings, hybrid vector + lexical retrieval fused with reciprocal rank fusion, and Claude for grounded generation — without changing the UI or API contract.",
-    ].join("\n\n");
+    return {
+      answersDirectly: true,
+      answer: [
+        "The pipeline has clean seams: parser -> chunker -> retriever -> answer composer -> guardrails -> trace. The default mode uses paragraph-aware chunking, TF-IDF lexical retrieval, and grounded templated answers so the demo runs with zero secrets.",
+        "With provider keys set, the same seams switch to OpenAI embeddings, hybrid vector + lexical retrieval fused with reciprocal rank fusion, and Claude for grounded generation — without changing the UI or API contract.",
+      ].join("\n\n"),
+    };
   }
 
+  // No templated intent matched. Deterministic mode does not synthesize a
+  // free-form answer (that is the LLM path's job), so we transparently surface
+  // the closest evidence and steer toward the supported questions — marked
+  // ungrounded. This is deliberate: a single high-IDF term can clear the
+  // relevance gate (e.g. a city name in the resume contact line matching an
+  // off-topic "weather in <city>" question), and lexical scores alone cannot
+  // tell an incidental match from a real one. Refusing to *claim* groundedness
+  // here is the honest behavior — the semantic separation only exists on the
+  // embeddings path.
   if (hasSufficientContext(citations)) {
     const evidence = citations
       .slice(0, 3)
       .map((chunk, index) => `${index + 1}. [${chunk.title}] ${chunk.text.replace(/\s+/g, " ").slice(0, 240)}...`)
       .join("\n");
-    return `Based on the retrieved evidence:\n\n${evidence}\n\nBe explicit about which parts are proven by the resume versus planned production enhancements.`;
+    return {
+      answersDirectly: false,
+      answer:
+        `I don't have a direct, structured answer to that, so here is the closest evidence I found in the documents:\n\n${evidence}\n\n` +
+        "For a grounded answer, ask about fit, missing skills, experience alignment, interview preparation, the RAG architecture, or productionization.",
+    };
   }
 
-  return REFUSAL_MESSAGE;
+  return { answer: REFUSAL_MESSAGE, answersDirectly: false };
 }
 
 // ---------------------------------------------------------------------------
