@@ -13,7 +13,8 @@ type Message = {
 const quickQuestions = [
   "How does my experience align with this role?",
   "What skills am I missing for this role?",
-  "How should I present this in 10 minutes?",
+  "What are my chances of getting shortlisted?",
+  "What interview questions should I prepare for?",
   "What is the productionization plan?",
   "Explain the RAG architecture and trade-offs.",
 ];
@@ -38,7 +39,7 @@ export function CareerAssistant() {
     {
       role: "assistant",
       content:
-        "I am ready to compare the resume, job description, and assignment. Ask about fit, gaps, interview prep, RAG choices, or productionization.",
+        "I am ready to compare the resume against your job descriptions. Ask about fit, gaps, shortlist chances, interview prep, RAG choices, or productionization.",
     },
   ]);
   const [isLoading, setIsLoading] = useState(false);
@@ -215,7 +216,14 @@ export function CareerAssistant() {
                   <button
                     key={document.id}
                     type="button"
-                    onClick={() => setActiveDocumentId(document.id)}
+                    onClick={() => {
+                      setActiveDocumentId(document.id);
+                      // Selecting a job tab also makes it the scoring target, so the
+                      // fit panel and the next answer reflect the job you're looking at.
+                      if (document.kind === "job") {
+                        setActiveJobId(document.id);
+                      }
+                    }}
                     className={`min-h-12 flex-1 border px-2 text-sm font-semibold transition ${
                       activeDocumentId === document.id
                         ? "border-[#0f4f3f] bg-[#0f4f3f] text-white"
