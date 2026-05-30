@@ -105,7 +105,20 @@ What I'd add, roughly in order of value:
 5. **Reranking** — add a cross-encoder rerank step on top of hybrid retrieval for high-value queries.
 6. **Ops** — the structured logs and eval gate are already here; I'd wire them to OpenTelemetry tracing, a metrics dashboard, prompt/version tracking, and a cost budget alarm.
 
-The Dockerfile (multi-stage, non-root, Next.js standalone output) and the GitHub Actions pipeline (lint → typecheck → test → eval → build) are already in the repo, so the deployment story isn't hand-waved.
+**Where it runs.** The app is a single non-root container (Next.js standalone output), so it drops onto any of the major clouds with the same shape — a managed container runtime in front, Postgres + a vector store behind, object storage for uploads, and a queue for the background embedding jobs. I'd reach for **AWS** first because that's where I've shipped before; the mapping is deliberately portable:
+
+| Component | AWS (my default) | GCP | Azure | Cloudflare |
+|-----------|------------------|-----|-------|------------|
+| App container | App Runner / ECS Fargate | Cloud Run | Container Apps | Workers (via OpenNext) |
+| Uploaded files | S3 | Cloud Storage | Blob Storage | R2 |
+| Metadata DB | RDS for Postgres | Cloud SQL | Azure DB for Postgres | Hyperdrive → Postgres |
+| Vector store | pgvector on RDS / Aurora (OpenSearch at scale) | AlloyDB / Vertex Vector Search | Azure AI Search | Vectorize |
+| Ingestion + embed jobs | SQS + Lambda/Fargate workers | Cloud Tasks + Cloud Run jobs | Storage Queue + Functions | Queues + Workers |
+| Secrets (LLM keys) | Secrets Manager | Secret Manager | Key Vault | Workers secrets |
+| Tracing / metrics / logs | CloudWatch + OTel | Cloud Logging + Trace | Azure Monitor | Workers Analytics + OTel |
+| Edge / CDN | CloudFront | Cloud CDN | Front Door | Cloudflare CDN |
+
+The point isn't the specific boxes — it's that the architecture is already split along these seams (parser, chunker, retriever, vector store, answer composer), so deploying it is wiring managed services to existing interfaces, not a rewrite. The Dockerfile (multi-stage, non-root, Next.js standalone output) and the GitHub Actions pipeline (lint → typecheck → test → eval → build) are already in the repo, so the deployment story isn't hand-waved.
 
 ## Engineering standards I held to
 
