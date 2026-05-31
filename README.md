@@ -1,8 +1,8 @@
 # Career Intelligence Assistant
 
-A conversational RAG app that reads a resume, one or more job descriptions, and the assignment brief, then answers questions about role fit, skill gaps, interview prep, the RAG architecture itself, and how I'd ship it to production. Documents can be pasted/edited inline or uploaded as **PDF / DOCX / TXT** (parsed server-side, still keyless). You can **add as many job postings as you want** (and remove them) right in the UI — fit is scored per job, so pick a posting and the same resume scores differently against each one.
+A conversational RAG app that reads a resume and one or more job descriptions, then answers questions about role fit, skill gaps, shortlist chances, interview prep, the RAG architecture itself, and how I'd ship it to production. Documents can be pasted/edited inline or uploaded as **PDF / DOCX / TXT** (parsed server-side, still keyless). You can **add as many job postings as you want** (and remove them) right in the UI — fit is scored per job, so pick a posting and the same resume scores differently against each one.
 
-I picked **Option 4 (Career Intelligence Assistant)** because it lets me use the actual assignment inputs as the corpus — my CV, the Newpage AI-Native Builder JD, and the brief — so the demo is grounded in real data instead of a toy dataset.
+I picked **Option 4 (Career Intelligence Assistant)** because it lets me use real inputs as the corpus — my CV and the Newpage AI-Native Builder JD — so the demo is grounded in real data instead of a toy dataset.
 
 The one decision that shaped everything else: **it has to run with zero API keys.** I don't have paid API access, and I didn't want a live demo that dies because a key is missing or rate-limited. So the default path is fully deterministic and offline. The LLM path is real and wired up, but it's gated behind env keys — if they're present the app upgrades itself to embeddings + Claude; if not, it degrades gracefully to lexical retrieval and templated grounded answers. Same contract, same guardrails, same UI either way.
 
@@ -46,7 +46,7 @@ docker run -p 3000:3000 career-assistant
 
 ```mermaid
 flowchart LR
-  A[Resume / JD / Assignment<br/>editable in the UI] --> B[POST /api/chat<br/>Zod-validated]
+  A[Resume / Job descriptions<br/>editable in the UI] --> B[POST /api/chat<br/>Zod-validated]
   B --> C[Paragraph-aware chunker]
   C --> D{mode}
   D -->|deterministic| E[TF-IDF lexical retrieval]
@@ -158,4 +158,4 @@ My do's and don'ts with AI assistants:
 - **Expand the eval set** — 8 cases proves the harness; a real product wants dozens, including more adversarial and edge cases.
 - **A presentation mode** that walks the 10-minute demo automatically.
 
-See [`docs/approach.md`](docs/approach.md) for the demo script, the 10-minute presentation plan, and what I found in the data. See [`docs/project-details.md`](docs/project-details.md) for the assignment/JD/resume mapping and interview-ready project summary.
+See [`docs/approach.md`](docs/approach.md) for the demo script and what I found in the data, and [`docs/project-details.md`](docs/project-details.md) for the JD/resume mapping and project summary.
