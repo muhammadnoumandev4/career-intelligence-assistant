@@ -27,7 +27,7 @@ export async function embedTexts(texts: string[], config: AppConfig): Promise<nu
   return embeddings;
 }
 
-const SYSTEM_PROMPT = `You are a Career Intelligence Assistant. You compare a candidate's resume against a job description and assignment brief.
+const SYSTEM_PROMPT = `You are a Career Intelligence Assistant. You compare a candidate's resume against one or more job descriptions.
 
 Rules:
 - Answer ONLY using the provided context blocks. Do not invent skills, employers, or requirements.

@@ -53,18 +53,4 @@ The platform runs containerised on AWS with Docker, and deployments go through a
 
 Required background includes 5+ years building production web applications, deep TypeScript across frontend and backend, Node.js microservices, PostgreSQL performance tuning, REST and GraphQL API design, and cloud-native deployment with Docker and CI/CD. Experience in fintech, payments, or other regulated, high-reliability domains is strongly preferred.`,
   },
-  {
-    id: "assignment-v3",
-    title: "Assignment v3",
-    kind: "assignment",
-    text: `Assignment: build a full-stack web application. Choose one conversational AI assistant option: Chat With Your Docs, Code Documentation Assistant, Meeting Intelligence System, or Career Intelligence Assistant.
-
-Career Intelligence Assistant option: analyze resumes against job descriptions. Upload a resume and multiple job postings, then answer questions about fit, skill gaps, experience alignment, and interview preparation. Example queries include what skills are missing for this role and how experience aligns with a job.
-
-Submission requirements: GitHub repo with code, README or docs with quick setup, architecture overview, productionization plan for AWS/GCP/Azure/Cloudflare, RAG and LLM decisions, choices considered, final choice for LLM, embedding model, vector database, orchestration framework, prompt and context management, guardrails, quality, observability, key technical decisions, engineering standards followed and skipped, how AI tools were used, what would be done differently with more time, screenshots, and optional video.
-
-Evaluation criteria: core functionality that can answer questions based on uploaded or provided documents using RAG or similar retrieval with a simple interface; creativity in UI/UX and product innovation; thought process around chunking, embedding model and LLM selection, retrieval, prompt engineering, context management, guardrails, quality controls, and observability; engineering excellence through clean readable well-structured code, ideally containerized, tested, and observable; AI-assisted development process including how coding tools were prompted, accepted, changed, and governed.
-
-Interview: 10 minutes to present the approach, demo the working application, discuss findings in the data and how they were handled, and be ready for a small modification after the demo.`,
-  },
 ];

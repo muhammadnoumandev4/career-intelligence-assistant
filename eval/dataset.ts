@@ -9,7 +9,7 @@ import type { DocumentKind } from "../src/lib/rag";
  *  - expectRefuse: the assistant should decline (no confident grounding)
  *  - mustInclude:  case-insensitive substrings the answer should contain
  *
- * Runs against the default seed corpus (resume + JD + assignment) with no keys.
+ * Runs against the default seed corpus (resume + job descriptions) with no keys.
  */
 export type GoldenCase = {
   id: string;
@@ -34,9 +34,9 @@ export const goldenSet: GoldenCase[] = [
   },
   {
     id: "interview",
-    question: "How should I present this in 10 minutes?",
-    expectKind: "assignment",
-    mustInclude: ["minute"],
+    question: "How should I prepare for the interview based on my experience?",
+    expectKind: "resume",
+    mustInclude: ["STAR"],
   },
   {
     id: "production",
