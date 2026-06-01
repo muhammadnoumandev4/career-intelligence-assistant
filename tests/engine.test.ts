@@ -158,4 +158,31 @@ describe("answerQuestion (deterministic)", () => {
     expect(deployAndChances.answer).toMatch(/production|deploy|pgvector/i);
     expect(deployAndChances.answer).toMatch(/shortlist|%|signal/i);
   });
+
+  it("covers broader job-assistant runtime questions a panel may ask live", async () => {
+    const cases = [
+      { question: "What should I avoid saying?", expected: /interview|gap|prepare/i },
+      { question: "How do I defend not using a vector database?", expected: /architecture|retrieval|vector|pgvector/i },
+      { question: "How should I answer if they ask about LangGraph?", expected: /interview|gap|agent|mcp|langgraph/i },
+      { question: "What examples from my resume prove backend experience?", expected: /yes|backend|resume|node|nestjs/i },
+      { question: "Can you write a short recruiter summary for me?", expected: /fit|match|strength|candidate/i },
+    ];
+
+    for (const testCase of cases) {
+      const result = await answerQuestion(testCase.question, defaultDocuments);
+      expect(result.trace.grounded, `should be grounded: ${testCase.question}`).toBe(true);
+      expect(result.answer, testCase.question).toMatch(testCase.expected);
+      expect(result.answer, testCase.question).not.toMatch(/^I could not find strong evidence/);
+      expect(result.answer, testCase.question).not.toMatch(/^I don't have a direct, structured answer/);
+    }
+  });
+
+  it("compares multiple job descriptions when asked which role is the better fit", async () => {
+    const result = await answerQuestion("Which job description is a better fit for me?", defaultDocuments);
+    expect(result.trace.grounded).toBe(true);
+    expect(result.answer).toMatch(/best fit/i);
+    expect(result.answer).toMatch(/Northbridge Fintech Senior Full-Stack JD/);
+    expect(result.answer).toMatch(/80%/);
+    expect(result.answer).toMatch(/Newpage AI-Native Builder JD/);
+  });
 });

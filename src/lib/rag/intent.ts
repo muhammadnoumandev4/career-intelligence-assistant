@@ -8,10 +8,11 @@ import type { FitReport } from "./types";
  * a question, so we classify the *kind* of career question by surface cues and
  * fall back to a general self-referential-and-career heuristic. The trade-off is
  * explicit — an unusual phrasing can mis-route or fall through to an honest
- * refusal rather than a fabricated answer (a deliberate safety bias). Semantic
- * understanding of arbitrary phrasing is the job of the LLM path, which does not
- * use this module at all. Keeping the rules isolated here (rather than inline in
- * the engine) makes the boundary between "general retrieval/grounding/fit" and
+ * refusal rather than a fabricated answer (a deliberate safety bias). The LLM
+ * path can also use this module to expand retrieval queries, but the answer is
+ * still generated semantically from retrieved context rather than from these
+ * templates. Keeping the rules isolated here (rather than inline in the engine)
+ * makes the boundary between "general retrieval/grounding/fit" and
  * "rule-based intent routing" legible and unit-testable.
  */
 export type AssistantIntent =
@@ -24,6 +25,7 @@ export type AssistantIntent =
   | "architecture"
   | "productionShortlist"
   | "alignmentGaps"
+  | "jobComparison"
   | "capability"
   | "candidate"
   | "unknown";
@@ -82,6 +84,10 @@ const CAPABILITY_CUES = [
   "know microservices",
   "know ",
   "worked with",
+  "examples from my resume",
+  "prove",
+  "evidence of",
+  "show my",
 ];
 
 const CANDIDATE_CUES = [
@@ -165,9 +171,43 @@ export function detectIntent(message: string): AssistantIntent {
     normalized.includes("align") || normalized.includes("fit") || normalized.includes("match");
   const wantsProduction =
     normalized.includes("production") || normalized.includes("scale") || normalized.includes("deploy");
+  const wantsJobComparison =
+    includesAny(normalized, ["which job", "which role", "which jd", "which job description", "compare job", "compare role"]) ||
+    (normalized.includes("better fit") && includesAny(normalized, ["job", "role", "jd", "description"])) ||
+    (normalized.includes("best fit") && includesAny(normalized, ["job", "role", "jd", "description"]));
+  const wantsSystemArchitecture =
+    includesAny(normalized, [
+      "architecture",
+      "rag",
+      "retrieval",
+      "vector",
+      "embedding",
+      "chunk",
+      "guardrail",
+      "deterministic",
+      "llm",
+      "bm25",
+      "pgvector",
+    ]) && !includesAny(normalized, ["do i have", "do i know", "my experience with", "experience with"]);
+  const wantsInterviewPrep = includesAny(normalized, [
+    "interview",
+    "present",
+    "prepare",
+    "presentation",
+    "demo",
+    "pitch",
+    "highlight",
+    "avoid",
+    "say",
+    "ask the interviewer",
+    "ask interviewer",
+    "panel",
+    "answer if they ask",
+  ]);
 
   // Compound intents first, so a question that spans two topics gets a blended
   // answer instead of being arbitrarily assigned to whichever check ran first.
+  if (wantsJobComparison) return "jobComparison";
   if (wantsProduction && wantsShortlist) return "productionShortlist";
   if (wantsAlignment && wantsGaps) return "alignmentGaps";
   if (wantsGaps) return "gaps";
@@ -176,13 +216,11 @@ export function detectIntent(message: string): AssistantIntent {
 
   if (includesAny(normalized, CAPABILITY_CUES)) return "capability";
 
-  if (
-    (normalized.includes("interview") || normalized.includes("prepare")) &&
-    normalized.includes("question")
-  ) {
+  if ((wantsInterviewPrep || normalized.includes("prepare")) && normalized.includes("question")) {
     return "interviewQuestions";
   }
-  if (normalized.includes("interview") || normalized.includes("present") || normalized.includes("prepare")) {
+  if (wantsSystemArchitecture) return "architecture";
+  if (wantsInterviewPrep) {
     return "interviewPrep";
   }
   if (wantsProduction) return "production";
@@ -192,10 +230,7 @@ export function detectIntent(message: string): AssistantIntent {
   // candidate, so self-referential / experience phrasing is excluded and falls
   // through to the candidate intent below.
   const isAboutCandidate = includesAny(normalized, SELF_OR_CANDIDATE_CUES);
-  if (
-    !isAboutCandidate &&
-    (normalized.includes("architecture") || normalized.includes("rag") || normalized.includes("retrieval"))
-  ) {
+  if (!isAboutCandidate && wantsSystemArchitecture) {
     return "architecture";
   }
 
@@ -233,6 +268,7 @@ export function extractCapabilityTopic(message: string): string {
     .replace(/what'?s/g, " ")
     .replace(/\b(do|does|did|i|he|she|they|you|we|my|his|her|their|me|him|candidate|profile)\b/g, " ")
     .replace(/\b(have|has|had|know|knows|use|uses|using|worked|work|with|about|experience|background|skilled|skill|skills)\b/g, " ")
+    .replace(/\b(example|examples|evidence|prove|proves|show|shows|demonstrate|demonstrates|resume|cv)\b/g, " ")
     .replace(/\b(in|on|for|this|that|the|a|an|role|job|position|please|tell|show|explain)\b/g, " ");
   const tokens = tokenize(cleaned);
   return tokens.slice(0, 6).join(" ");
@@ -269,6 +305,8 @@ export function buildRetrievalQuery(message: string, intent: AssistantIntent, fi
       ].join(" ");
     case "alignmentGaps":
       return [message, "fit alignment missing skills gaps role requirements", strengths, gaps].join(" ");
+    case "jobComparison":
+      return [message, "compare job descriptions best fit role score strengths gaps", strengths, gaps].join(" ");
     case "alignment":
     case "candidate":
       return [message, "fit alignment strengths candidate experience role requirements", strengths].join(" ");

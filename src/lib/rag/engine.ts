@@ -36,6 +36,38 @@ function composeCandidateOverview(fit: FitReport, role: string): DeterministicAn
   };
 }
 
+function composeJobComparison(documents: DocumentInput[]): DeterministicAnswer {
+  const jobs = documents.filter((document) => document.kind === "job");
+  if (jobs.length < 2) {
+    const fit = analyzeFit(documents, jobs[0]?.id);
+    return composeCandidateOverview(fit, fit.jobTitle ? `the ${fit.jobTitle} role` : "this role");
+  }
+
+  const ranked = jobs
+    .map((job) => ({ job, fit: analyzeFit(documents, job.id) }))
+    .sort((a, b) => b.fit.score - a.fit.score);
+  const best = ranked[0];
+  const comparison = ranked
+    .map(({ job, fit }, index) => `${index + 1}. ${job.title}: ${fit.score}% fit`)
+    .join("\n");
+  const bestStrengths = best.fit.matched.slice(0, 4).map((signal) => signal.label).join(", ");
+  const bestGaps = best.fit.gaps.slice(0, 3).map((signal) => signal.label).join(", ");
+
+  return {
+    answersDirectly: true,
+    answer: [
+      `Best fit among the uploaded job descriptions is ${best.job.title} at ${best.fit.score}%.`,
+      comparison,
+      bestStrengths
+        ? `Why it ranks highest: strongest matches are ${bestStrengths}.`
+        : "It ranks highest because it has the least weak overlap against the current resume.",
+      bestGaps
+        ? `Main gaps to handle for that role: ${bestGaps}.`
+        : "No major required gaps stand out for that role.",
+    ].join("\n\n"),
+  };
+}
+
 /**
  * Single entry point for the assistant. Selects the deterministic or LLM
  * pipeline based on configuration, applies guardrails, and returns the answer
@@ -76,7 +108,7 @@ function answerDeterministic(message: string, documents: DocumentInput[], fit: F
   const retrievalMs = performance.now() - startRetrieval;
 
   const startAnswer = performance.now();
-  const { answer, answersDirectly } = composeDeterministicAnswer(message, citations, fit, intent);
+  const { answer, answersDirectly } = composeDeterministicAnswer(message, citations, fit, intent, documents);
   const answerMs = performance.now() - startAnswer;
 
   // Grounded only when we gave a direct, intent-matched answer that is backed by
@@ -115,8 +147,13 @@ function composeDeterministicAnswer(
   citations: RetrievedChunk[],
   fit: FitReport,
   intent: AssistantIntent = detectIntent(message),
+  documents: DocumentInput[] = [],
 ): DeterministicAnswer {
   const role = fit.jobTitle ? `the ${fit.jobTitle} role` : "this role";
+
+  if (intent === "jobComparison") {
+    return composeJobComparison(documents);
+  }
 
   if (intent === "gaps") {
     const gapLabels = fit.gaps.length
@@ -246,7 +283,7 @@ function composeDeterministicAnswer(
       answersDirectly: true,
       answer: [
         "The pipeline has clean seams: parser -> chunker -> retriever -> answer composer -> guardrails -> trace. The default mode uses paragraph-aware chunking, TF-IDF lexical retrieval, and grounded templated answers so the demo runs with zero secrets.",
-        "With provider keys set, the same seams switch to OpenAI embeddings, hybrid vector + lexical retrieval fused with reciprocal rank fusion, and an LLM (Claude or Gemini) for grounded generation — without changing the UI or API contract.",
+        "With provider keys set, the same seams switch to OpenAI or Google embeddings, hybrid vector + lexical retrieval fused with reciprocal rank fusion, and an LLM (Claude, GPT, or Gemini) for grounded generation — without changing the UI or API contract.",
       ].join("\n\n"),
     };
   }
