@@ -50,4 +50,37 @@ describe("/api/chat input bounds", () => {
     expect(typeof body.answer).toBe("string");
     expect(body.trace).toBeDefined();
   });
+
+  it("ignores empty draft documents instead of rejecting the whole request", async () => {
+    const documents = [
+      { id: "resume", title: "Resume", kind: "resume" as const, text: "React TypeScript Node AWS experience." },
+      { id: "job", title: "Job", kind: "job" as const, text: "Build React TypeScript cloud applications." },
+      { id: "draft-job", title: "Draft job", kind: "job" as const, text: "" },
+    ];
+
+    const res = await POST(
+      postRequest({
+        message: "How should I prepare for the interview based on my experience?",
+        documents,
+        activeJobId: "draft-job",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.answer).toMatch(/interview|prepare/i);
+  });
+
+  it("rejects when all provided documents are empty drafts", async () => {
+    const res = await POST(
+      postRequest({
+        message: "How should I prepare?",
+        documents: [{ id: "draft", title: "Draft", kind: "job", text: "" }],
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/at least one document/i);
+  });
 });

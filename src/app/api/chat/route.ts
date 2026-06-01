@@ -19,7 +19,7 @@ const documentSchema = z.object({
   id: z.string().trim().min(1),
   title: z.string().trim().min(1),
   kind: z.enum(["resume", "job", "assignment", "notes"]),
-  text: z.string().trim().min(1).max(MAX_DOCUMENT_CHARS),
+  text: z.string().max(MAX_DOCUMENT_CHARS).transform((text) => text.trim()),
 });
 
 const requestSchema = z
@@ -55,7 +55,13 @@ export async function POST(request: Request) {
   }
 
   const { message, documents, activeJobId } = parsed.data;
-  const corpus = documents?.length ? documents : defaultDocuments;
+  const corpus = documents?.length
+    ? documents.filter((document) => document.text.length > 0)
+    : defaultDocuments;
+
+  if (documents?.length && corpus.length === 0) {
+    return NextResponse.json({ error: "Add at least one document with text before asking a question." }, { status: 400 });
+  }
 
   try {
     const result = await answerQuestion(message, corpus, undefined, activeJobId);
