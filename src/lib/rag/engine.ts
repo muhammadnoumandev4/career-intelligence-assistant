@@ -1,13 +1,40 @@
 import { getConfig, type AppConfig } from "../config";
 import { logger } from "../logger";
-import { chunkDocuments } from "./chunk";
+import { chunkDocuments, tokenize } from "./chunk";
 import { analyzeFit } from "./fit";
 import { hasSufficientContext, isGrounded, REFUSAL_MESSAGE } from "./guardrails";
+import { type AssistantIntent, buildRetrievalQuery, detectIntent, extractCapabilityTopic } from "./intent";
 import { embedTexts, generateGroundedAnswer, hasEmbeddings } from "./providers";
 import { lexicalRetrieve, reciprocalRankFusion, vectorRetrieve } from "./retrieval";
 import type { ChatResult, DocumentInput, FitReport, RetrievedChunk } from "./types";
 
 const RETRIEVAL_LIMIT = 5;
+
+function includesAnyToken(text: string, tokens: string[]): boolean {
+  const normalized = text.toLowerCase();
+  return tokens.some((token) => normalized.includes(token));
+}
+
+function sourceLine(chunk: RetrievedChunk): string {
+  return `[${chunk.title}] ${chunk.text.replace(/\s+/g, " ").slice(0, 220)}...`;
+}
+
+function composeCandidateOverview(fit: FitReport, role: string): DeterministicAnswer {
+  const strengths = fit.matched.slice(0, 5).map((signal) => signal.label).join(", ");
+  const gapLabels = fit.gaps.slice(0, 3).map((gap) => gap.label).join(", ");
+  return {
+    answersDirectly: true,
+    answer: [
+      `For ${role}, the resume is a ${fit.score}% match. The strongest areas the candidate brings are: ${
+        strengths || "limited overlap with the role's stated requirements"
+      }.`,
+      gapLabels
+        ? `The role also asks for ${gapLabels}, which the resume does not clearly evidence - worth addressing directly.`
+        : "No major required skills are missing for this role.",
+      "Ask about overall fit, missing skills, experience alignment, shortlist chances, interview preparation, the RAG architecture, or productionization for a deeper view.",
+    ].join("\n\n"),
+  };
+}
 
 /**
  * Single entry point for the assistant. Selects the deterministic or LLM
@@ -44,15 +71,16 @@ export async function answerQuestion(
 function answerDeterministic(message: string, documents: DocumentInput[], fit: FitReport): ChatResult {
   const startRetrieval = performance.now();
   const chunks = chunkDocuments(documents);
-  const citations = lexicalRetrieve(message, chunks, RETRIEVAL_LIMIT);
+  const intent = detectIntent(message);
+  const citations = lexicalRetrieve(buildRetrievalQuery(message, intent, fit), chunks, RETRIEVAL_LIMIT);
   const retrievalMs = performance.now() - startRetrieval;
 
   const startAnswer = performance.now();
-  const { answer, answersDirectly } = composeDeterministicAnswer(message, citations, fit);
+  const { answer, answersDirectly } = composeDeterministicAnswer(message, citations, fit, intent);
   const answerMs = performance.now() - startAnswer;
 
   // Grounded only when we gave a direct, intent-matched answer that is backed by
-  // retrieved evidence. The transparent "closest evidence" fallback and refusals
+  // retrieved evidence. The transparent "closest evidence" path and refusals
   // are never grounded — so an off-topic question that only incidentally matched
   // a term is never presented as a confident answer.
   const grounded = answersDirectly && citations.length > 0;
@@ -86,12 +114,11 @@ function composeDeterministicAnswer(
   message: string,
   citations: RetrievedChunk[],
   fit: FitReport,
+  intent: AssistantIntent = detectIntent(message),
 ): DeterministicAnswer {
-  const normalized = message.toLowerCase();
-
   const role = fit.jobTitle ? `the ${fit.jobTitle} role` : "this role";
 
-  if (normalized.includes("missing") || normalized.includes("gap")) {
+  if (intent === "gaps") {
     const gapLabels = fit.gaps.length
       ? fit.gaps.slice(0, 4).map((gap) => gap.label).join(", ")
       : "none — the resume covers every skill this role asks for";
@@ -103,27 +130,28 @@ function composeDeterministicAnswer(
       ].join("\n\n"),
     };
   }
+  if (intent === "alignmentGaps") {
+    const strengths = fit.matched.slice(0, 5).map((signal) => signal.label).join(", ");
+    const gapLabels = fit.gaps.length
+      ? fit.gaps.slice(0, 4).map((gap) => gap.label).join(", ")
+      : "none - the resume covers every skill this role asks for";
+    return {
+      answersDirectly: true,
+      answer: [
+        `Overall fit for ${role} is ${fit.score}%. The strongest alignment is: ${
+          strengths || "limited overlap with the role's stated requirements"
+        }.`,
+        `The main gaps to address are: ${gapLabels}.`,
+        "Use the presentation to connect the matched experience to the assignment, then be explicit about how the gaps would be closed in a production version.",
+      ].join("\n\n"),
+    };
+  }
   // "What are my chances of getting shortlisted?" is a fit/likelihood question.
   // It rarely shares vocabulary with the documents, so it is matched on its own
   // hiring-intent terms and answered from the fit report (score + strengths +
   // gaps) rather than refused. Placed before the generic fit branch so it gives
   // the tailored shortlist framing.
-  if (
-    normalized.includes("shortlist") ||
-    normalized.includes("chance") ||
-    normalized.includes("odds") ||
-    normalized.includes("likelihood") ||
-    normalized.includes("likely") ||
-    normalized.includes("get the job") ||
-    normalized.includes("get hired") ||
-    normalized.includes("get selected") ||
-    normalized.includes("get an interview") ||
-    normalized.includes("get a callback") ||
-    normalized.includes("qualif") ||
-    normalized.includes("stand a chance") ||
-    normalized.includes("competitive") ||
-    normalized.includes("stack up")
-  ) {
+  if (intent === "shortlist") {
     const verdict = fit.score >= 75 ? "a strong" : fit.score >= 55 ? "a reasonable" : "a limited";
     const strengths = fit.matched.slice(0, 4).map((signal) => signal.label).join(", ");
     const gapLabels = fit.gaps.slice(0, 3).map((gap) => gap.label).join(", ");
@@ -141,7 +169,24 @@ function composeDeterministicAnswer(
       ].join("\n\n"),
     };
   }
-  if (normalized.includes("align") || normalized.includes("fit") || normalized.includes("match")) {
+  if (intent === "productionShortlist") {
+    const verdict = fit.score >= 75 ? "a strong" : fit.score >= 55 ? "a reasonable" : "a limited";
+    const strengths = fit.matched.slice(0, 4).map((signal) => signal.label).join(", ");
+    const gapLabels = fit.gaps.slice(0, 3).map((gap) => gap.label).join(", ");
+    return {
+      answersDirectly: true,
+      answer: [
+        "Production path: move ingestion to background jobs, store parsed documents in object storage, persist chunks and metadata in Postgres with pgvector, add hybrid BM25/vector retrieval, stream LLM responses, and deploy with Docker on AWS ECS/Fargate, Cloud Run, Azure Container Apps, or Vercel plus managed Postgres.",
+        `Shortlist signal: the resume vs ${role} scores ${fit.score}%, which is ${verdict} signal. Strongest matches: ${
+          strengths || "limited overlap with the role's stated requirements"
+        }.`,
+        gapLabels
+          ? `What could hold a shortlist back: ${gapLabels}. Address those directly with a concrete productionization plan.`
+          : "No major gaps stand out against this role.",
+      ].join("\n\n"),
+    };
+  }
+  if (intent === "alignment") {
     const strengths = fit.matched.slice(0, 5).map((signal) => signal.label).join(", ");
     return {
       answersDirectly: true,
@@ -151,7 +196,27 @@ function composeDeterministicAnswer(
       ].join("\n\n"),
     };
   }
-  if (normalized.includes("interview") || normalized.includes("present") || normalized.includes("prepare")) {
+  if (intent === "interviewQuestions") {
+    const strengthQuestions = fit.matched
+      .slice(0, 4)
+      .map((signal) => `- Be ready to prove ${signal.label} with a concrete project example and measurable outcome.`);
+    const gapQuestions = fit.gaps
+      .slice(0, 3)
+      .map((signal) => `- Be ready to explain how you would close or mitigate the ${signal.label} gap.`);
+    const questions = [
+      ...strengthQuestions,
+      ...gapQuestions,
+      "- Be ready to explain the architecture, technical decisions, quality checks, and productionization plan behind the submitted prototype.",
+    ].slice(0, 8);
+    return {
+      answersDirectly: true,
+      answer: [
+        `For ${role}, these are the interview questions/themes to prepare for from the uploaded resume/JD:`,
+        questions.join("\n"),
+      ].join("\n\n"),
+    };
+  }
+  if (intent === "interviewPrep") {
     const strengths = fit.matched.slice(0, 4).map((signal) => signal.label).join(", ");
     const gapLabels = fit.gaps.slice(0, 3).map((gap) => gap.label).join(", ");
     return {
@@ -167,7 +232,7 @@ function composeDeterministicAnswer(
       ].join("\n\n"),
     };
   }
-  if (normalized.includes("production") || normalized.includes("scale") || normalized.includes("deploy")) {
+  if (intent === "production") {
     return {
       answersDirectly: true,
       answer: [
@@ -176,7 +241,7 @@ function composeDeterministicAnswer(
       ].join("\n\n"),
     };
   }
-  if (normalized.includes("architecture") || normalized.includes("rag") || normalized.includes("retrieval")) {
+  if (intent === "architecture") {
     return {
       answersDirectly: true,
       answer: [
@@ -184,6 +249,52 @@ function composeDeterministicAnswer(
         "With provider keys set, the same seams switch to OpenAI embeddings, hybrid vector + lexical retrieval fused with reciprocal rank fusion, and an LLM (Claude or Gemini) for grounded generation — without changing the UI or API contract.",
       ].join("\n\n"),
     };
+  }
+  if (intent === "capability") {
+    const topic = extractCapabilityTopic(message);
+    const topicTokens = tokenize(topic);
+
+    if (topicTokens.length === 0) {
+      return composeCandidateOverview(fit, role);
+    }
+
+    const matchedSignals = fit.matched.filter((signal) =>
+      includesAnyToken(`${signal.label} ${signal.evidence}`, topicTokens),
+    );
+    const gapSignals = fit.gaps.filter((signal) =>
+      includesAnyToken(`${signal.label} ${signal.evidence}`, topicTokens),
+    );
+    const resumeEvidence = citations.filter((chunk) => chunk.kind === "resume" && includesAnyToken(chunk.text, topicTokens));
+    const jobEvidence = citations.filter((chunk) => chunk.kind === "job" && includesAnyToken(chunk.text, topicTokens));
+    const displayTopic = topic || "that area";
+
+    if (resumeEvidence.length || matchedSignals.length) {
+      return {
+        answersDirectly: true,
+        answer: [
+          `Yes — I found evidence for ${displayTopic} in the resume.`,
+          matchedSignals.length
+            ? `It maps to: ${matchedSignals.map((signal) => signal.label).join(", ")}.`
+            : `Relevant evidence: ${sourceLine(resumeEvidence[0])}`,
+          jobEvidence.length
+            ? `The selected role also appears to ask for this area: ${sourceLine(jobEvidence[0])}`
+            : `For ${role}, treat this as a supporting strength rather than a standalone hiring decision.`,
+        ].join("\n\n"),
+      };
+    }
+
+    if (jobEvidence.length || gapSignals.length) {
+      return {
+        answersDirectly: true,
+        answer: [
+          `I do not see strong resume evidence for ${displayTopic}.`,
+          gapSignals.length
+            ? `It maps to a gap area: ${gapSignals.map((signal) => signal.label).join(", ")}.`
+            : `The selected role appears to ask for it: ${sourceLine(jobEvidence[0])}`,
+          "This is a good area to address honestly with a concrete learning or productionization plan.",
+        ].join("\n\n"),
+      };
+    }
   }
 
   // Catch-all for candidate-focused questions a recruiter would actually type
@@ -193,51 +304,9 @@ function composeDeterministicAnswer(
   // answer is built from the fit report (always computable from resume + JD),
   // so it works even when the phrasing shares no vocabulary with the documents.
   // Keywords are deliberately candidate-specific (not bare words like "why") so
-  // genuinely off-topic questions still drop through to the fallback below.
-  if (
-    normalized.includes("strength") ||
-    normalized.includes("strong") ||
-    normalized.includes("skill") ||
-    normalized.includes("expert") ||
-    normalized.includes("proficien") ||
-    normalized.includes("experience") ||
-    normalized.includes("background") ||
-    normalized.includes("good at") ||
-    normalized.includes("good fit") ||
-    normalized.includes("best fit") ||
-    normalized.includes("right fit") ||
-    normalized.includes("suitable") ||
-    normalized.includes("suited") ||
-    normalized.includes("capable") ||
-    normalized.includes("capability") ||
-    normalized.includes("why should we hire") ||
-    normalized.includes("why hire") ||
-    normalized.includes("should we hire") ||
-    normalized.includes("hire him") ||
-    normalized.includes("hire her") ||
-    normalized.includes("candidate") ||
-    normalized.includes("his profile") ||
-    normalized.includes("summarize") ||
-    normalized.includes("summarise") ||
-    normalized.includes("summary of") ||
-    normalized.includes("overview of") ||
-    normalized.includes("what can he do") ||
-    normalized.includes("what does he bring")
-  ) {
-    const strengths = fit.matched.slice(0, 5).map((signal) => signal.label).join(", ");
-    const gapLabels = fit.gaps.slice(0, 3).map((gap) => gap.label).join(", ");
-    return {
-      answersDirectly: true,
-      answer: [
-        `For ${role}, the resume is a ${fit.score}% match. The strongest areas the candidate brings are: ${
-          strengths || "limited overlap with the role's stated requirements"
-        }.`,
-        gapLabels
-          ? `The role also asks for ${gapLabels}, which the resume does not clearly evidence — worth addressing directly.`
-          : "No major required skills are missing for this role.",
-        "Ask about overall fit, missing skills, experience alignment, shortlist chances, interview preparation, the RAG architecture, or productionization for a deeper view.",
-      ].join("\n\n"),
-    };
+  // genuinely off-topic questions still drop through to the refusal/evidence path.
+  if (intent === "candidate") {
+    return composeCandidateOverview(fit, role);
   }
 
   // No templated intent matched. Deterministic mode does not synthesize a
@@ -266,7 +335,7 @@ function composeDeterministicAnswer(
 }
 
 // ---------------------------------------------------------------------------
-// LLM pipeline (activated when an Anthropic key is present)
+// LLM pipeline (activated when any configured generation key is present)
 // ---------------------------------------------------------------------------
 
 async function answerWithLlm(
@@ -277,27 +346,35 @@ async function answerWithLlm(
 ): Promise<ChatResult> {
   const startRetrieval = performance.now();
   const chunks = chunkDocuments(documents);
+  const intent = detectIntent(message);
+  const retrievalQuery = buildRetrievalQuery(message, intent, fit);
 
-  // Always compute the lexical ranking. It drives the relevance gate below —
-  // MIN_RELEVANCE_SCORE is tuned for the TF-IDF score scale — even when we fuse
-  // it with dense results to produce the final citation order.
-  const lexical = lexicalRetrieve(message, chunks, RETRIEVAL_LIMIT);
-
+  // The LLM path uses the same domain intent and fit rubric to expand retrieval,
+  // but the answer itself is still generated from the retrieved context by the
+  // provider. This makes phrasing robust without adding canned answers.
   let citations: RetrievedChunk[];
+  let semanticAvailable = false;
   if (hasEmbeddings(config)) {
-    const [queryEmbedding] = await embedTexts([message], config);
+    const [queryEmbedding] = await embedTexts([retrievalQuery], config);
     const chunkEmbeddings = await embedTexts(chunks.map((c) => c.text), config);
     const dense = vectorRetrieve(queryEmbedding, chunks, chunkEmbeddings, RETRIEVAL_LIMIT);
+    const lexical = lexicalRetrieve(retrievalQuery, chunks, RETRIEVAL_LIMIT);
     citations = reciprocalRankFusion([dense, lexical], RETRIEVAL_LIMIT);
+    semanticAvailable = true;
   } else {
-    citations = lexical;
+    citations = lexicalRetrieve(retrievalQuery, chunks, RETRIEVAL_LIMIT);
   }
   const retrievalMs = performance.now() - startRetrieval;
 
-  // Gate on the lexical signal, not the fused score: RRF scores live on a
-  // rank-based scale (~1/k) unrelated to the TF-IDF relevance threshold, so
-  // checking the fused score here would refuse every answer in embeddings mode.
-  if (!hasSufficientContext(lexical)) {
+  // Scope is judged generally, not by keyword:
+  //  - With embeddings, the model is the scope judge. Its system prompt requires
+  //    it to answer only from the provided resume/JD context and to decline when
+  //    the context does not contain the answer — so an off-topic question gets a
+  //    grounded refusal from the model, and any job-related phrasing is answered.
+  //    We therefore do not pre-gate; we always hand the top chunks to the model.
+  //  - Without embeddings we have no semantic signal, so we keep the lexical
+  //    relevance gate as the only available relevance proxy.
+  if (!semanticAvailable && !hasSufficientContext(citations)) {
     return {
       answer: REFUSAL_MESSAGE,
       citations,

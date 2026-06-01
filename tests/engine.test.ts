@@ -21,6 +21,16 @@ describe("answerQuestion (deterministic)", () => {
     expect(result.answer).toMatch(/%/);
   });
 
+  it("answers interview-question prep instead of refusing", async () => {
+    const result = await answerQuestion("What interview questions should I prepare for?", defaultDocuments);
+    expect(result.mode).toBe("deterministic");
+    expect(result.trace.grounded).toBe(true);
+    expect(result.citations.length).toBeGreaterThan(0);
+    expect(result.answer).toMatch(/interview questions/i);
+    expect(result.answer).toMatch(/architecture/i);
+    expect(result.answer).not.toMatch(/^I could not find strong evidence/);
+  });
+
   it("answers free-form candidate questions from the fit report instead of refusing", async () => {
     const refusalStart = "I could not find strong evidence";
     for (const question of [
@@ -54,5 +64,98 @@ describe("answerQuestion (deterministic)", () => {
     const result = await answerQuestion("What is the capital of France?", defaultDocuments);
     expect(result.trace.grounded).toBe(false);
     expect(result.citations.length).toBe(0);
+  });
+
+  it("answers novel self-referential career phrasings via career-intent routing", async () => {
+    // These use no enumerated intent keyword, but are clearly about the candidate
+    // and the role, so the assistant should answer them from the fit report.
+    for (const question of [
+      "What's your honest read on me for this role?",
+      "How am I doing against this job?",
+      "Give me your assessment of my resume for this position.",
+    ]) {
+      const result = await answerQuestion(question, defaultDocuments);
+      expect(result.answer.startsWith("I could not find strong evidence"), `should not refuse: ${question}`).toBe(false);
+    }
+  });
+
+  it("still refuses off-topic questions that happen to contain 'me' or 'I'", async () => {
+    const result = await answerQuestion("Can you tell me a joke?", defaultDocuments);
+    expect(result.trace.grounded).toBe(false);
+  });
+
+  it("routes 'what am I lacking compared to the requirements?' to a gaps answer", async () => {
+    const result = await answerQuestion("What am I lacking compared to the requirements?", defaultDocuments);
+    expect(result.mode).toBe("deterministic");
+    expect(result.trace.grounded).toBe(true);
+    expect(result.answer).toMatch(/gap/i);
+    expect(result.answer).not.toMatch(/^I could not find strong evidence/);
+  });
+
+  it("routes 'why should you hire me?' to a candidate answer, not a refusal", async () => {
+    const result = await answerQuestion("Why should you hire me?", defaultDocuments);
+    expect(result.mode).toBe("deterministic");
+    expect(result.trace.grounded).toBe(true);
+    expect(result.answer).not.toMatch(/^I could not find strong evidence/);
+  });
+
+  it("treats 'do I have RAG/LLM experience?' as a candidate question, not a system-architecture one", async () => {
+    // "rag" appears in the question, but it is about the candidate's experience,
+    // not how the system is built — so it must answer from the fit report, not
+    // describe the pipeline ("parser -> chunker -> retriever").
+    const result = await answerQuestion("Do I have RAG and LLM experience?", defaultDocuments);
+    expect(result.mode).toBe("deterministic");
+    expect(result.answer).toMatch(/match|fit|resume/i);
+    expect(result.answer).not.toMatch(/parser -> chunker|clean seams/i);
+  });
+
+  it("handles related gap, fit, standout, and shortlist phrasings without canned exact-match questions", async () => {
+    const cases = [
+      { question: "Where do I fall short for this role?", expected: /gap|gaps|address/i },
+      { question: "What's weak in my profile?", expected: /gap|asks for|address/i },
+      { question: "What do I need to improve?", expected: /gap|address|mitigation/i },
+      { question: "Is this role right for me?", expected: /match|strongest|role/i },
+      { question: "What makes me stand out?", expected: /strongest|candidate|brings/i },
+      { question: "Will I get called for an interview?", expected: /shortlist|%|odds/i },
+    ];
+
+    for (const testCase of cases) {
+      const result = await answerQuestion(testCase.question, defaultDocuments);
+      expect(result.mode).toBe("deterministic");
+      expect(result.trace.grounded, `should be grounded: ${testCase.question}`).toBe(true);
+      expect(result.answer, testCase.question).toMatch(testCase.expected);
+      expect(result.answer, testCase.question).not.toMatch(/^I could not find strong evidence/);
+      expect(result.answer, testCase.question).not.toMatch(/^I don't have a direct, structured answer/);
+    }
+  });
+
+  it("answers direct skill-capability questions from resume and JD evidence", async () => {
+    const cases = [
+      { question: "Do I have Python experience?", expected: /yes|python|resume/i },
+      { question: "Do I have frontend experience?", expected: /yes|frontend|react|next\.js|resume/i },
+      { question: "Do I know microservices?", expected: /yes|microservices|resume/i },
+      { question: "What's my experience with PostgreSQL?", expected: /yes|postgresql|resume/i },
+    ];
+
+    for (const testCase of cases) {
+      const result = await answerQuestion(testCase.question, defaultDocuments);
+      expect(result.mode).toBe("deterministic");
+      expect(result.trace.grounded, `should be grounded: ${testCase.question}`).toBe(true);
+      expect(result.answer, testCase.question).toMatch(testCase.expected);
+      expect(result.answer, testCase.question).not.toMatch(/^I could not find strong evidence/);
+      expect(result.answer, testCase.question).not.toMatch(/^I don't have a direct, structured answer/);
+    }
+  });
+
+  it("answers compound in-scope questions instead of dropping one part", async () => {
+    const fitAndGaps = await answerQuestion("Does my experience match, or am I missing key skills?", defaultDocuments);
+    expect(fitAndGaps.trace.grounded).toBe(true);
+    expect(fitAndGaps.answer).toMatch(/fit|%/i);
+    expect(fitAndGaps.answer).toMatch(/gap|gaps|missing/i);
+
+    const deployAndChances = await answerQuestion("How do I deploy this and what are my chances?", defaultDocuments);
+    expect(deployAndChances.trace.grounded).toBe(true);
+    expect(deployAndChances.answer).toMatch(/production|deploy|pgvector/i);
+    expect(deployAndChances.answer).toMatch(/shortlist|%|signal/i);
   });
 });
