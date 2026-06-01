@@ -18,6 +18,15 @@ describe("detectIntent (rule-based, keyless mode)", () => {
     expect(detectIntent("Explain the RAG architecture and trade-offs.")).toBe("architecture");
   });
 
+  it("routes technical-defense questions to architecture, but interview-framing to prep", () => {
+    // "defend not using LangGraph" is about the system's design choices.
+    expect(detectIntent("How do I defend not using LangGraph?")).toBe("architecture");
+    expect(detectIntent("Why did I not use a vector database in the default version?")).toBe("architecture");
+    // But "how should I answer if they ask about X" is interview prep, not a
+    // system description — even though it names a technical term.
+    expect(detectIntent("How should I answer if they ask about LangGraph?")).toBe("interviewPrep");
+  });
+
   it("routes compound questions to a blended intent", () => {
     expect(detectIntent("Does my experience match, or am I missing key skills?")).toBe("alignmentGaps");
     expect(detectIntent("How do I deploy this and what are my chances?")).toBe("productionShortlist");

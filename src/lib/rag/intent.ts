@@ -188,6 +188,12 @@ export function detectIntent(message: string): AssistantIntent {
       "llm",
       "bm25",
       "pgvector",
+      "langgraph",
+      "orchestration",
+      "reciprocal rank",
+      "rrf",
+      "tf-idf",
+      "tf idf",
     ]) && !includesAny(normalized, ["do i have", "do i know", "my experience with", "experience with"]);
   const wantsInterviewPrep = includesAny(normalized, [
     "interview",
@@ -219,10 +225,13 @@ export function detectIntent(message: string): AssistantIntent {
   if ((wantsInterviewPrep || normalized.includes("prepare")) && normalized.includes("question")) {
     return "interviewQuestions";
   }
-  if (wantsSystemArchitecture) return "architecture";
+  // Interview-prep framing ("how should I answer if they ask about X?") wins over
+  // the system-architecture intent even when X is a technical term like
+  // "LangGraph" — the candidate wants prep advice, not a system description.
   if (wantsInterviewPrep) {
     return "interviewPrep";
   }
+  if (wantsSystemArchitecture) return "architecture";
   if (wantsProduction) return "production";
 
   // The architecture intent describes how *this system* is built. A question
