@@ -2,7 +2,7 @@
 
 A conversational RAG app that reads a resume and one or more job descriptions, then answers questions about role fit, skill gaps, shortlist chances, interview prep, the RAG architecture itself, and how I'd ship it to production. Documents can be pasted/edited inline or uploaded as **PDF / DOCX / TXT** (parsed server-side, still keyless). You can **add as many job postings as you want** (and remove them) right in the UI — fit is scored per job, so pick a posting and the same resume scores differently against each one.
 
-I picked **Option 4 (Career Intelligence Assistant)** because it lets me use real inputs as the corpus — my CV and the Newpage AI-Native Builder JD — so the demo is grounded in real data instead of a toy dataset.
+I picked **Option 4 (Career Intelligence Assistant)** because it lets me use real inputs as the corpus — my CV, the Newpage AI-Native Builder JD, and a second (conventional fintech full-stack) JD to show how fit changes per role — so the demo is grounded in real data instead of a toy dataset.
 
 The one decision that shaped everything else: **it has to run with zero API keys.** I don't have paid API access, and I didn't want a live demo that dies because a key is missing or rate-limited. So the default path is fully deterministic and offline. The LLM path is real and wired up, but it's gated behind env keys — if they're present the app upgrades itself to embeddings + an LLM (Anthropic Claude, OpenAI GPT, or Google Gemini, whichever key is set); if not, it degrades gracefully to lexical retrieval and templated grounded answers. Same contract, same guardrails, same UI either way.
 
@@ -22,7 +22,7 @@ Full check suite (what CI runs):
 ```bash
 npm run lint        # eslint
 npm run typecheck   # tsc --noEmit
-npm test            # vitest (unit tests for chunking, retrieval, fit, guardrails)
+npm test            # vitest (unit tests for chunking, retrieval, fit, guardrails, intent routing, and the /api/chat boundary)
 npm run eval        # RAG eval gate — fails the build if retrieval/refusal/grounding regress
 npm run build       # next build (standalone output)
 ```
@@ -57,7 +57,7 @@ flowchart LR
   F --> G
   G -->|insufficient| R[Refuse + say why]
   G -->|ok, deterministic| T[Templated grounded answer]
-  G -->|ok, llm| L[LLM (Claude/Gemini),<br/>context-only prompt]
+  G -->|ok, llm| L[LLM (Claude/GPT/Gemini),<br/>context-only prompt]
   T --> H[Answer + citations + fit signals + trace]
   L --> H
   R --> H
