@@ -151,7 +151,7 @@ And what I deliberately skipped given the time box (called out so they're not mi
 
 ## How I used AI tools
 
-I used Codex as a pair programmer: to read the assignment/JD/CV and pick the option, scaffold the Next.js app and the RAG module, draft tests, and catch wiring mistakes. The judgment calls stayed mine — the no-keys-by-default architecture, the deterministic/LLM split, the RRF choice, gating the LLM path, and treating evals as a CI gate were decisions I made and the tool implemented.
+I used two AI coding assistants as pair programmers — **Codex** and **Claude Code** — and leaned on each where it was stronger: Codex for fast scaffolding (the Next.js app, the RAG module, test stubs) and Claude Code for longer reasoning passes (refactoring the intent layer, tightening guardrails, and reviewing diffs). Reading the assignment/JD/CV and picking the option, drafting tests, and catching wiring mistakes were shared across both. The judgment calls stayed mine — the no-keys-by-default architecture, the deterministic/LLM split, the RRF choice, gating the LLM path, and treating evals as a CI gate were decisions I made and the tools implemented.
 
 **Keeping it to my standards.** I drive the assistant with explicit conventions — strict typing, a clear module boundary (`src/lib/rag/*` stays pure and UI-free), and a "no new runtime dependency unless it earns its place" rule. Generated code only lands after I read it; anything I wouldn't have written myself gets rewritten, not accepted.
 
