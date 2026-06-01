@@ -4,7 +4,7 @@ A conversational RAG app that reads a resume and one or more job descriptions, t
 
 I picked **Option 4 (Career Intelligence Assistant)** because it lets me use real inputs as the corpus — my CV and the Newpage AI-Native Builder JD — so the demo is grounded in real data instead of a toy dataset.
 
-The one decision that shaped everything else: **it has to run with zero API keys.** I don't have paid API access, and I didn't want a live demo that dies because a key is missing or rate-limited. So the default path is fully deterministic and offline. The LLM path is real and wired up, but it's gated behind env keys — if they're present the app upgrades itself to embeddings + Claude; if not, it degrades gracefully to lexical retrieval and templated grounded answers. Same contract, same guardrails, same UI either way.
+The one decision that shaped everything else: **it has to run with zero API keys.** I don't have paid API access, and I didn't want a live demo that dies because a key is missing or rate-limited. So the default path is fully deterministic and offline. The LLM path is real and wired up, but it's gated behind env keys — if they're present the app upgrades itself to embeddings + an LLM (Anthropic Claude or Google Gemini, whichever key is set); if not, it degrades gracefully to lexical retrieval and templated grounded answers. Same contract, same guardrails, same UI either way.
 
 ## Quick start
 
@@ -55,7 +55,7 @@ flowchart LR
   F --> G
   G -->|insufficient| R[Refuse + say why]
   G -->|ok, deterministic| T[Templated grounded answer]
-  G -->|ok, llm| L[Claude, context-only prompt]
+  G -->|ok, llm| L[LLM (Claude/Gemini),<br/>context-only prompt]
   T --> H[Answer + citations + fit signals + trace]
   L --> H
   R --> H
@@ -67,7 +67,7 @@ Everything retrieval-related lives in `src/lib/rag/`, deliberately split so each
 |------|----------------|
 | `chunk.ts` | Paragraph-aware chunking (~850 char cap) + tokenizer with stop-word filtering |
 | `retrieval.ts` | TF-IDF lexical scoring, cosine similarity, Reciprocal Rank Fusion (k=60) |
-| `providers.ts` | LLM-mode adapters — OpenAI embeddings, Claude generation (only touched when keys exist) |
+| `providers.ts` | LLM-mode adapters — OpenAI embeddings, Claude/Gemini generation (only touched when keys exist) |
 | `fit.ts` | JD-driven fit: a skill taxonomy where the *selected job* decides which skills count, then the resume is scored on coverage — so fit is relative to the role, not hard-coded |
 | `guardrails.ts` | Relevance threshold, grounding check, refusal message |
 | `engine.ts` | Orchestration — picks mode, runs retrieval, applies guardrails, composes the answer |
@@ -78,9 +78,9 @@ Everything retrieval-related lives in `src/lib/rag/`, deliberately split so each
 
 **Retrieval.** Two modes behind one interface:
 - *Deterministic (default):* TF-IDF lexical retrieval. Repeatable, explainable, and it makes the demo behave identically every time — which matters when I'm presenting live.
-- *LLM mode (keys present):* dense embeddings (`text-embedding-3-small`) combined with the lexical scores via **Reciprocal Rank Fusion**. Hybrid beats either signal alone — lexical nails exact terms like "NestJS", vectors catch paraphrase like "containerized deployments" ≈ "Docker".
+- *LLM mode (keys present):* dense embeddings combined with the lexical scores via **Reciprocal Rank Fusion**, then grounded generation with an LLM. Both generation and embeddings are **provider-agnostic and resolved independently**, so a user can bring *any* vendor — and even mix them in a single request. Generation supports **Anthropic (Claude), OpenAI (GPT), or Google (Gemini)**; embeddings support **OpenAI (`text-embedding-3-small`) or Google (`gemini-embedding-001`)**. One vendor's key is enough for full hybrid retrieval; with two keys you can run, say, Claude generation + OpenAI embeddings together. Hybrid beats either signal alone — lexical nails exact terms like "NestJS", vectors catch paraphrase like "containerized deployments" ≈ "Docker".
 
-**Why these picks.** `text-embedding-3-small` is cheap and good enough for this corpus size; I'd only reach for a larger model if recall measurably suffered. Claude for synthesis because the JD names it and the answers here are reasoning-over-evidence, not raw generation. Vectors are held in memory because the corpus is a handful of small documents — standing up pgvector for that would be over-engineering. The interface is built so swapping in a real vector store is a `providers.ts` change, not a rewrite.
+**Why these picks.** `text-embedding-3-small` is cheap and good enough for this corpus size; I'd only reach for a larger model if recall measurably suffered. For synthesis the generation model is pluggable — Claude, GPT, or Gemini — selected by which key is present, because the answers here are reasoning-over-evidence, not raw generation, so the specific model matters less than the grounding around it. Vectors are held in memory because the corpus is a handful of small documents — standing up pgvector for that would be over-engineering. The interface is built so swapping in a real vector store is a `providers.ts` change, not a rewrite.
 
 **Orchestration framework.** None on purpose. This is a single-step *retrieve → guard → answer* flow, so plain TypeScript in `engine.ts` is clearer and easier to debug than a graph framework. I considered LangGraph but it earns its keep only once you have multi-step agent state, branching, or tool loops — none of which this needs yet. The engine is structured as discrete stages, so dropping in LangGraph later is a refactor of one file, not the app.
 
@@ -88,7 +88,7 @@ Everything retrieval-related lives in `src/lib/rag/`, deliberately split so each
 
 **Prompt & context management.** The LLM prompt is a fixed system instruction that forbids outside knowledge and requires `[title]` citations; context is only the top retrieved chunks (capped so I stay well inside the model window), ordered by fused score. Temperature is low for repeatability. In deterministic mode the same retrieved context drives intent-keyed answer templates instead of a model.
 
-**Guardrails.** Before any answer, the engine checks whether retrieval cleared a relevance threshold. If nothing relevant comes back, it refuses and says why instead of hallucinating. Every non-refusal answer must carry at least one citation, and `grounded` is only true when both conditions hold. The LLM prompt is context-only with `[title]` citation enforcement and low temperature; on any LLM error the request degrades to the deterministic path rather than failing the user.
+**Guardrails.** Before any answer, the engine checks whether retrieval cleared a relevance threshold. If nothing relevant comes back, it refuses and says why instead of hallucinating. Every non-refusal answer must carry at least one citation, and `grounded` is only true when both conditions hold. The LLM prompt is context-only with `[title]` citation enforcement and low temperature; on any LLM error the request degrades to the deterministic path rather than failing the user. The `/api/chat` boundary also bounds input — at most 12 documents, 50k chars each, 200k chars total — so an oversized paste can't blow up retrieval latency or per-chunk embedding cost. Every external provider call carries a 30s timeout so a hung provider surfaces as a catchable error and falls back to deterministic mode.
 
 **Observability.** Every request returns a trace (mode, chunks cited, retrieval ms, answer ms, token counts, grounded flag) that the UI renders under each answer, and the server emits the same as structured JSON logs. So during the demo you can see *why* an answer came out the way it did.
 
@@ -134,7 +134,11 @@ And what I deliberately skipped given the time box (called out so they're not mi
 - **No durable ingestion** — PDF/DOCX upload and text extraction work, but parsing is synchronous and in-memory; there's no object storage, no OCR for scanned PDFs, and no background embedding job yet.
 - **In-memory vectors, no real vector DB** — correct for a small handful of documents; would not scale.
 - **No streaming and no integration/e2e tests** — unit + eval coverage on the retrieval core was the higher-value use of the time; I'd add Playwright e2e for a real product.
-- **Edge cases acknowledged, not all handled** — e.g. very large pasted documents aren't paginated/streamed through retrieval.
+- **No embedding cache** — in LLM mode the corpus is re-embedded on every question. Correct for a tiny, editable demo corpus; in production embeddings would be computed once at ingestion and persisted in a vector store, not per request.
+- **Provider hardening is minimal** — calls have a timeout and fall back to deterministic mode, but no retries, circuit breaker, per-tenant rate limits, or cost guards yet. Those belong with the auth/tenancy layer.
+- **Grounding is citation-level, not claim-level** — `grounded` verifies the answer cites a retrieved source, not that every sentence is entailed by it. A production system would add claim-level verification (e.g. an NLI/entailment check per sentence).
+- **Retrieval gate is lexical** — even in hybrid mode the relevance gate keys off the lexical (TF-IDF) score, which is a deliberate safety choice (no false confidence) but can refuse a purely semantic paraphrase with weak term overlap.
+- **Edge cases acknowledged, not all handled** — e.g. very large pasted documents are bounded with a 400 rather than paginated/streamed through retrieval.
 
 ## How I used AI tools
 
@@ -157,5 +161,3 @@ My do's and don'ts with AI assistants:
 - **Streaming + reranking** for answer quality and perceived speed.
 - **Expand the eval set** — 8 cases proves the harness; a real product wants dozens, including more adversarial and edge cases.
 - **A presentation mode** that walks the 10-minute demo automatically.
-
-See [`docs/approach.md`](docs/approach.md) for the demo script and what I found in the data, and [`docs/project-details.md`](docs/project-details.md) for the JD/resume mapping and project summary.
