@@ -153,12 +153,13 @@ export function CareerAssistant() {
     setMessages((currentMessages) => [...currentMessages, { role: "user", content: message }]);
 
     try {
+      const requestDocuments = documents.filter((document) => document.text.trim().length > 0);
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ message, documents, activeJobId: jobId || undefined }),
+        body: JSON.stringify({ message, documents: requestDocuments, activeJobId: jobId || undefined }),
       });
 
       const payload = await response.json();
