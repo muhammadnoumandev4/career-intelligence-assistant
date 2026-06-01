@@ -181,7 +181,7 @@ function composeDeterministicAnswer(
       answersDirectly: true,
       answer: [
         "The pipeline has clean seams: parser -> chunker -> retriever -> answer composer -> guardrails -> trace. The default mode uses paragraph-aware chunking, TF-IDF lexical retrieval, and grounded templated answers so the demo runs with zero secrets.",
-        "With provider keys set, the same seams switch to OpenAI embeddings, hybrid vector + lexical retrieval fused with reciprocal rank fusion, and Claude for grounded generation — without changing the UI or API contract.",
+        "With provider keys set, the same seams switch to OpenAI embeddings, hybrid vector + lexical retrieval fused with reciprocal rank fusion, and an LLM (Claude or Gemini) for grounded generation — without changing the UI or API contract.",
       ].join("\n\n"),
     };
   }
