@@ -15,6 +15,8 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). No `.env` needed — it boots in deterministic mode.
 
+> **Reviewing this?** See **[TESTING.md](TESTING.md)** for a guided walkthrough — what to click, example questions, and the expected behaviour for each.
+
 Full check suite (what CI runs):
 
 ```bash
